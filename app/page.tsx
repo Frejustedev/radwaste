@@ -196,24 +196,31 @@ export default function NuclearWasteApp() {
         const { auth } = await import('../lib/firebase');
         const { signInWithEmailAndPassword, createUserWithEmailAndPassword } = await import('firebase/auth');
         
+        const emailTrimmed = loginEmail.trim().toLowerCase();
         try {
-          await signInWithEmailAndPassword(auth, loginEmail, loginPassword);
+          await signInWithEmailAndPassword(auth, emailTrimmed, loginPassword);
         } catch (err: any) {
           const adminEmail = 'agbotonfrejuste@gmail.com';
-          const emailTrimmed = loginEmail.trim().toLowerCase();
           
           if (emailTrimmed === adminEmail) {
             try {
               await createUserWithEmailAndPassword(auth, emailTrimmed, loginPassword);
             } catch (createErr: any) {
               if (createErr.code === 'auth/email-already-in-use') {
-                setLoginError('Le mot de passe est incorrect. (Compte déjà existant)');
+                setLoginError('Le mot de passe est incorrect.');
               } else {
-                setLoginError('Erreur admin: ' + createErr.code + ' / ' + createErr.message);
+                setLoginError('Erreur: ' + createErr.message);
               }
             }
           } else {
-            setLoginError('Identifiants incorrects. (' + err.code + ')');
+            console.error(err);
+            if (err.code === 'auth/invalid-credential' || err.code === 'auth/wrong-password' || err.code === 'auth/user-not-found') {
+              setLoginError("Identifiants incorrects. Vérifiez l'adresse email et le mot de passe.");
+            } else if (err.code === 'auth/too-many-requests') {
+              setLoginError("Trop de tentatives infructueuses. Veuillez réessayer plus tard.");
+            } else {
+              setLoginError('Erreur de connexion. (' + err.code + ')');
+            }
           }
         }
       } catch (err) {
@@ -1340,7 +1347,7 @@ function UsersView({ users, setUsers, logAction }: any) {
         await updateDoc(doc(db, 'users', editId), {
           name: formData.name, 
           role: formData.role as any, 
-          email: formData.email,
+          email: formData.email.trim().toLowerCase(),
           permissions: defaultPermissions
         });
         logAction(`Utilisateur ${formData.name} mis à jour.`);
@@ -1348,8 +1355,10 @@ function UsersView({ users, setUsers, logAction }: any) {
         const { secondaryAuth } = await import('@/lib/firebase');
         const { createUserWithEmailAndPassword } = await import('firebase/auth');
         
+        const cleanEmail = formData.email.trim().toLowerCase();
+        
         // Create user using secondary instance to preserve admin session
-        const userCredential = await createUserWithEmailAndPassword(secondaryAuth, formData.email, formData.password);
+        const userCredential = await createUserWithEmailAndPassword(secondaryAuth, cleanEmail, formData.password);
         const uid = userCredential.user.uid;
 
         const newUser: Partial<User> = { 
@@ -1357,12 +1366,13 @@ function UsersView({ users, setUsers, logAction }: any) {
           hospitalId: 'default-hospital',
           name: formData.name, 
           role: formData.role as any, 
-          email: formData.email,
+          email: cleanEmail,
           permissions: defaultPermissions,
           lastLogin: new Date().toISOString()
         };
 
         await setDoc(doc(db, 'users', uid), newUser);
+        await import('firebase/auth').then(({ signOut }) => signOut(secondaryAuth));
         logAction(`Utilisateur ${formData.name} créé.`);
       }
       resetForm();
