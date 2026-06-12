@@ -273,16 +273,16 @@ export default function NuclearWasteApp() {
               <DashboardView metrics={metrics} statsData={statsData} wasteItems={wasteItems} setActiveTab={setActiveTab} />
             )}
             {activeTab === 'identification' && (
-              <IdentificationView wasteItems={wasteItems} setWasteItems={setWasteItems} />
+              <IdentificationView wasteItems={wasteItems} setWasteItems={setWasteItems} users={users} />
             )}
             {activeTab === 'decroissance' && (
               <DecroissanceView wasteItems={wasteItems} setWasteItems={setWasteItems} />
             )}
             {activeTab === 'sortie' && (
-              <SortieView wasteItems={wasteItems} setWasteItems={setWasteItems} />
+              <SortieView wasteItems={wasteItems} setWasteItems={setWasteItems} users={users} />
             )}
             {activeTab === 'incidents' && (
-              <IncidentsView incidents={incidents} setIncidents={setIncidents} wasteItems={wasteItems} />
+              <IncidentsView incidents={incidents} setIncidents={setIncidents} wasteItems={wasteItems} users={users} />
             )}
             {activeTab === 'reports' && (
               <ReportsView wasteItems={wasteItems} />
