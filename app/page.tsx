@@ -38,7 +38,13 @@ export default function NuclearWasteApp() {
   const [showNotifications, setShowNotifications] = useState(false);
   const [theme, setTheme] = useState<'dark' | 'light'>('dark');
   const [authUser, setAuthUser] = useState<any>(null);
+  const [currentUserProfile, setCurrentUserProfile] = useState<User | null>(null);
   const [authLoading, setAuthLoading] = useState(true);
+  const [dataLoaded, setDataLoaded] = useState(false);
+  
+  const [loginEmail, setLoginEmail] = useState('');
+  const [loginPassword, setLoginPassword] = useState('');
+  const [loginError, setLoginError] = useState('');
 
   useEffect(() => {
     let unsubscribeAuth: any;
@@ -48,12 +54,33 @@ export default function NuclearWasteApp() {
 
     import('@/lib/firebase').then(({ auth, db }) => {
       import('firebase/auth').then(({ onAuthStateChanged }) => {
-        unsubscribeAuth = onAuthStateChanged(auth, (user) => {
+        unsubscribeAuth = onAuthStateChanged(auth, async (user) => {
           setAuthUser(user);
           setAuthLoading(false);
           
           if (user) {
-            import('firebase/firestore').then(({ collection, query, where, onSnapshot }) => {
+            import('firebase/firestore').then(async ({ collection, query, where, onSnapshot, getDocs, setDoc, doc }) => {
+              // Ensure admin exists
+              if (user.email === 'agbotonfrejuste@gmail.com') {
+                const { getDoc } = await import('firebase/firestore');
+                const adminDoc = await getDoc(doc(db, 'users', user.uid));
+                if (!adminDoc.exists()) {
+                  const newAdmin: Partial<User> = {
+                    id: user.uid,
+                    hospitalId: 'default-hospital',
+                    name: user.displayName || 'Administrateur',
+                    email: user.email,
+                    role: 'Administrateur' as any,
+                    permissions: ['admin_complet'],
+                    lastLogin: new Date().toISOString()
+                  };
+                  await setDoc(doc(db, 'users', user.uid), newAdmin);
+                  setCurrentUserProfile(newAdmin as User);
+                } else {
+                  setCurrentUserProfile(adminDoc.data() as User);
+                }
+              }
+
               const qWaste = query(collection(db, 'wasteItems'), where('hospitalId', '==', 'default-hospital'));
               unsubWaste = onSnapshot(qWaste, (snapshot) => {
                 const w = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })) as WasteItem[];
@@ -70,9 +97,14 @@ export default function NuclearWasteApp() {
               unsubUsers = onSnapshot(qUsers, (snapshot) => {
                 const u = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })) as User[];
                 setUsers(u);
+                const profile = u.find(p => p.email === user.email);
+                if (profile) setCurrentUserProfile(profile);
+                setDataLoaded(true);
               });
             });
           } else {
+            setCurrentUserProfile(null);
+            setDataLoaded(true);
             setWasteItems([]);
             setIncidents([]);
             setUsers([]);
@@ -122,22 +154,90 @@ export default function NuclearWasteApp() {
   }
 
   if (!authUser) {
+    const handleLogin = async (e: React.FormEvent) => {
+      e.preventDefault();
+      setLoginError('');
+      try {
+        const { auth } = await import('../lib/firebase');
+        const { signInWithEmailAndPassword, createUserWithEmailAndPassword } = await import('firebase/auth');
+        
+        try {
+          await signInWithEmailAndPassword(auth, loginEmail, loginPassword);
+        } catch (err: any) {
+          // If login fails, check if we need to auto-create the default admin
+          if ((err.code === 'auth/user-not-found' || err.code === 'auth/invalid-credential') && loginEmail === 'agbotonfrejuste@gmail.com') {
+            await createUserWithEmailAndPassword(auth, loginEmail, loginPassword);
+          } else {
+            setLoginError('Identifiants incorrects.');
+          }
+        }
+      } catch (err) {
+        setLoginError('Une erreur est survenue.');
+      }
+    };
+
     return (
       <div className="h-screen bg-[#0A0B0D] text-[#E0E2E5] flex items-center justify-center font-sans overflow-hidden select-none">
         <div className="w-full max-w-sm bg-[#15171C] p-8 rounded-2xl border border-white/5 flex flex-col items-center">
           <div className="w-16 h-16 bg-yellow-400 rounded-xl flex items-center justify-center text-black font-black italic text-3xl mb-6">☢</div>
           <h1 className="text-2xl font-black uppercase tracking-tighter mb-2">RadWaste <span className="text-yellow-400">Pro</span></h1>
-          <p className="text-xs text-slate-500 uppercase tracking-widest font-bold mb-8">Authentification requise</p>
+          <p className="text-xs text-slate-500 uppercase tracking-widest font-bold mb-6">Authentification requise</p>
+          
+          <form className="w-full space-y-4" onSubmit={handleLogin}>
+            <div>
+              <input 
+                type="email" 
+                placeholder="Adresse email" 
+                value={loginEmail}
+                onChange={(e) => setLoginEmail(e.target.value)}
+                required
+                className="w-full p-3 bg-white/5 border border-white/10 rounded-lg text-white text-sm focus:outline-none focus:border-yellow-400"
+              />
+            </div>
+            <div>
+              <input 
+                type="password" 
+                placeholder="Mot de passe" 
+                value={loginPassword}
+                onChange={(e) => setLoginPassword(e.target.value)}
+                required
+                className="w-full p-3 bg-white/5 border border-white/10 rounded-lg text-white text-sm focus:outline-none focus:border-yellow-400"
+              />
+            </div>
+            {loginError && <p className="text-red-500 text-xs text-center">{loginError}</p>}
+            <button 
+              type="submit"
+              className="w-full py-4 bg-yellow-400 hover:bg-yellow-500 text-black rounded-lg font-black uppercase text-xs transition-colors mt-2"
+            >
+              Se connecter
+            </button>
+          </form>
+        </div>
+      </div>
+    );
+  }
+
+  if (!dataLoaded) {
+    return <div className="h-screen bg-[#0A0B0D] flex items-center justify-center text-white text-xs uppercase tracking-widest font-bold">Chargement du profil...</div>;
+  }
+
+  if (!currentUserProfile) {
+    return (
+      <div className="h-screen bg-[#0A0B0D] text-[#E0E2E5] flex items-center justify-center font-sans overflow-hidden select-none">
+        <div className="w-full max-w-sm bg-[#15171C] p-8 rounded-2xl border border-white/5 flex flex-col items-center text-center">
+          <div className="w-16 h-16 bg-red-500/10 border border-red-500 rounded-xl flex items-center justify-center text-red-500 font-black italic text-3xl mb-6">!</div>
+          <h1 className="text-xl font-black uppercase tracking-tighter mb-2 text-white">Accès Non Autorisé</h1>
+          <p className="text-xs text-slate-400 mb-8 leading-relaxed">Votre compte Google n&apos;a pas été autorisé par l&apos;administrateur de l&apos;hôpital. Veuillez contacter M. Agboton pour obtenir vos identifiants d&apos;accès.</p>
           
           <button 
             onClick={() => {
-              import('../lib/firebase').then(({ loginWithGoogle }) => {
-                loginWithGoogle();
+              import('../lib/firebase').then(({ logout }) => {
+                logout();
               });
             }} 
-            className="w-full py-4 bg-yellow-400 hover:bg-yellow-500 text-black rounded-lg font-black uppercase text-xs transition-colors"
+            className="w-full py-4 bg-white/10 hover:bg-white/20 text-white rounded-lg font-black uppercase text-xs transition-colors"
           >
-            Se connecter avec Google
+            Se Déconnecter
           </button>
         </div>
       </div>
@@ -1012,7 +1112,7 @@ function PrintMensuel({ wasteItems }: any) {
              <th className="border border-gray-300 p-2 text-black font-bold">ID</th>
              <th className="border border-gray-300 p-2 text-black font-bold">Date Sortie</th>
              <th className="border border-gray-300 p-2 text-black font-bold">Isotope</th>
-             <th className="border border-gray-300 p-2 text-black font-bold">Mode d'élimination</th>
+             <th className="border border-gray-300 p-2 text-black font-bold">Mode d&apos;élimination</th>
              <th className="border border-gray-300 p-2 text-black font-bold">Visa Contrôleur</th>
           </tr>
         </thead>
@@ -1034,37 +1134,46 @@ function PrintMensuel({ wasteItems }: any) {
 
 function UsersView({ users, setUsers }: any) {
   const [isAdding, setIsAdding] = useState(false);
-  const [formData, setFormData] = useState({ name: '', role: 'Manipulateur', email: '' });
+  const [formData, setFormData] = useState({ name: '', role: 'Manipulateur', email: '', password: '' });
+  const [errorMsg, setErrorMsg] = useState('');
 
   const handleChange = (e: any) => setFormData({ ...formData, [e.target.name]: e.target.value });
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    let defaultPermissions = ['lecture'];
-    if (formData.role === 'Administrateur') defaultPermissions = ['admin_complet'];
-    else if (formData.role === 'Radiopharmacien') defaultPermissions = ['lecture', 'gestion_totale'];
-    else if (formData.role === 'Manipulateur' || formData.role === 'Médecin nucléaire') defaultPermissions = ['lecture', 'ajout_dechet'];
+    setErrorMsg('');
+    try {
+      const { secondaryAuth, db } = await import('@/lib/firebase');
+      const { createUserWithEmailAndPassword } = await import('firebase/auth');
+      const { doc, setDoc } = await import('firebase/firestore');
 
-    const newUser: Partial<User> = { 
-      id: String(Date.now()), 
-      hospitalId: 'default-hospital',
-      name: formData.name, 
-      role: formData.role as any, 
-      email: formData.email,
-      permissions: defaultPermissions,
-      lastLogin: new Date().toISOString()
-    };
-    setIsAdding(false);
+      // Create user using secondary instance to preserve admin session
+      const userCredential = await createUserWithEmailAndPassword(secondaryAuth, formData.email, formData.password);
+      const uid = userCredential.user.uid;
 
-    import('@/lib/firebase').then(({ db }) => {
-      import('firebase/firestore').then(({ doc, setDoc }) => {
-        setDoc(doc(db, 'users', newUser.id!), newUser).catch(err => {
-          console.error("Error adding user: ", err);
-        });
-      });
-    });
+      let defaultPermissions = ['lecture'];
+      if (formData.role === 'Administrateur') defaultPermissions = ['admin_complet'];
+      else if (formData.role === 'Radiopharmacien') defaultPermissions = ['lecture', 'gestion_totale'];
+      else if (formData.role === 'Manipulateur' || formData.role === 'Médecin nucléaire') defaultPermissions = ['lecture', 'ajout_dechet'];
 
-    setFormData({ name: '', role: 'Manipulateur', email: '' });
+      const newUser: Partial<User> = { 
+        id: uid, 
+        hospitalId: 'default-hospital',
+        name: formData.name, 
+        role: formData.role as any, 
+        email: formData.email,
+        permissions: defaultPermissions,
+        lastLogin: new Date().toISOString()
+      };
+
+      await setDoc(doc(db, 'users', uid), newUser);
+      
+      setIsAdding(false);
+      setFormData({ name: '', role: 'Manipulateur', email: '', password: '' });
+    } catch (err: any) {
+      console.error("Error adding user: ", err);
+      setErrorMsg(err.message || 'Error occurred');
+    }
   };
 
   return (
@@ -1084,14 +1193,16 @@ function UsersView({ users, setUsers }: any) {
 
       {isAdding && (
         <form onSubmit={handleSubmit} className="bg-[#15171C] p-6 rounded-2xl border border-white/5 animate-in fade-in zoom-in-95">
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-4">
             <FormInput required label="Nom Complet" name="name" value={formData.name} onChange={handleChange} />
-            <FormInput type="email" label="Adresse Email" name="email" value={formData.email} onChange={handleChange} />
+            <FormInput type="email" required label="Adresse Email" name="email" value={formData.email} onChange={handleChange} />
+            <FormInput type="password" required label="Mot de passe" name="password" value={formData.password} onChange={handleChange} placeholder="Minimum 6 caractères" />
             <FormSelect required label="Rôle / Fonction" name="role" value={formData.role} onChange={handleChange} options={['Administrateur', 'Médecin nucléaire', 'Radiopharmacien', 'Manipulateur', 'Physicien médical', 'Conseiller en radioprotection']} />
           </div>
+          {errorMsg && <p className="text-red-500 text-xs mb-4">{errorMsg}</p>}
           <div className="flex justify-end gap-3">
             <button type="button" onClick={() => setIsAdding(false)} className="px-4 py-2 border border-white/10 rounded-full font-black text-[10px] uppercase hover:bg-white/5">Annuler</button>
-            <button type="submit" className="px-4 py-2 bg-yellow-400 text-black rounded-full font-black text-[10px] uppercase hover:bg-yellow-500">Créer l'utilisateur</button>
+            <button type="submit" className="px-4 py-2 bg-yellow-400 text-black rounded-full font-black text-[10px] uppercase hover:bg-yellow-500">Créer l&apos;utilisateur</button>
           </div>
         </form>
       )}
@@ -1206,31 +1317,31 @@ function HelpView() {
           <div>
             <h4 className="text-sm font-bold text-white uppercase tracking-widest mb-2 border-b border-white/10 pb-2">1. Identification & Stockage</h4>
             <p className="text-sm text-slate-300 leading-relaxed">
-              Pour enregistrer un nouveau déchet dans le local de décroissance, rendez-vous dans le module "Identification & Stockage".
-              Précisez l'isotope, l'activité initiale (en MBq), et le débit de dose observé au contact et à un mètre. Le système calculera automatiquement la date théorique de libération en fonction de la demi-vie du radionucléide.
+              Pour enregistrer un nouveau déchet dans le local de décroissance, rendez-vous dans le module &quot;Identification & Stockage&quot;.
+              Précisez l&apos;isotope, l&apos;activité initiale (en MBq), et le débit de dose observé au contact et à un mètre. Le système calculera automatiquement la date théorique de libération en fonction de la demi-vie du radionucléide.
             </p>
           </div>
 
           <div>
             <h4 className="text-sm font-bold text-white uppercase tracking-widest mb-2 border-b border-white/10 pb-2">2. Suivi de Décroissance</h4>
             <p className="text-sm text-slate-300 leading-relaxed">
-              Le tableau de bord de décroissance vous permet d'un coup d'œil de repérer les fûts et objets pouvant être libérés.
-              Les éléments dont la date prévue de libération est atteinte ou dépassée apparaissent en surbrillance avec le statut "Libérable".
+              Le tableau de bord de décroissance vous permet d&apos;un coup d&apos;œil de repérer les fûts et objets pouvant être libérés.
+              Les éléments dont la date prévue de libération est atteinte ou dépassée apparaissent en surbrillance avec le statut &quot;Libérable&quot;.
             </p>
           </div>
 
           <div>
             <h4 className="text-sm font-bold text-white uppercase tracking-widest mb-2 border-b border-white/10 pb-2">3. Contrôle de Sortie & Élimination</h4>
             <p className="text-sm text-slate-300 leading-relaxed">
-              La sortie physique de la zone de stockage contrôlée doit systématiquement être validée dans l'application. 
-              Le contrôleur en charge de cette procédure doit re-mesurer le débit de dose pour s'assurer que ses valeurs sont en dessous des seuils réglementaires avant de valider.
+              La sortie physique de la zone de stockage contrôlée doit systématiquement être validée dans l&apos;application. 
+              Le contrôleur en charge de cette procédure doit re-mesurer le débit de dose pour s&apos;assurer que ses valeurs sont en dessous des seuils réglementaires avant de valider.
             </p>
           </div>
 
           <div>
             <h4 className="text-sm font-bold text-white uppercase tracking-widest mb-2 border-b border-white/10 pb-2">4. Support Technique</h4>
             <p className="text-sm text-slate-300 leading-relaxed mb-4">
-              En cas de perte d'accès ou de comportement inattendu, veuillez contacter l'administrateur système de votre établissement (support@imena-gest.net).
+              En cas de perte d&apos;accès ou de comportement inattendu, veuillez contacter l&apos;administrateur système de votre établissement (support@imena-gest.net).
             </p>
           </div>
         </div>

@@ -50,24 +50,15 @@ service cloud.firestore {
     }
 
     match /wasteItems/{wasteItemId} {
-      allow read: if isSignedIn() && existing().hospitalId == "default-hospital";
-      allow create: if isSignedIn() && isValidId(wasteItemId) && isValidWasteItem(incoming()) && incoming().hospitalId == "default-hospital";
-      allow update: if isSignedIn() && isValidWasteItem(incoming()) && incoming().hospitalId == existing().hospitalId;
-      allow list: if isSignedIn() && resource.data.hospitalId == "default-hospital";
+      allow read, write: if isSignedIn();
     }
 
     match /incidents/{incidentId} {
-      allow read: if isSignedIn() && existing().hospitalId == "default-hospital";
-      allow create: if isSignedIn() && isValidId(incidentId) && isValidIncident(incoming()) && incoming().hospitalId == "default-hospital";
-      allow update: if isSignedIn() && isValidIncident(incoming()) && incoming().hospitalId == existing().hospitalId;
-      allow list: if isSignedIn() && resource.data.hospitalId == "default-hospital";
+      allow read, write: if isSignedIn();
     }
 
     match /users/{userId} {
-      allow read: if isSignedIn() && existing().hospitalId == "default-hospital";
-      allow create: if isSignedIn() && isValidId(userId) && isValidUser(incoming()) && incoming().hospitalId == "default-hospital";
-      allow update: if isSignedIn() && isValidUser(incoming()) && incoming().hospitalId == existing().hospitalId && userId == request.auth.uid;
-      allow list: if isSignedIn() && resource.data.hospitalId == "default-hospital";
+      allow read, write: if isSignedIn();
     }
   }
 }
