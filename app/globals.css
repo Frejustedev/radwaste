@@ -1,0 +1,11 @@
+@import "tailwindcss";
+
+.light-theme {
+  filter: invert(1) hue-rotate(180deg) brightness(1.2);
+  background: white;
+}
+
+.light-theme .lucide {
+  /* Some icons might need tweaks but usually fine */
+}
+

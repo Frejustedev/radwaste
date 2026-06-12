@@ -1,0 +1,6 @@
+{
+  "name": "Application de Gestion des Déchets Radioactifs en Médecine Nucléaire",
+  "description": "Système de supervision des déchets radioactifs conforme à la réglementation (ASN).",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

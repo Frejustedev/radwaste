@@ -1,0 +1,1218 @@
+'use client';
+
+import React, { useState, useMemo, useEffect } from 'react';
+import { mockWaste, mockIncidents, mockUsers } from '@/lib/data';
+import { WasteItem, Incident, User } from '@/types';
+import { differenceInHours } from 'date-fns';
+import {
+  PieChart, Pie, Cell, Tooltip as RechartsTooltip, Legend, ResponsiveContainer, BarChart, Bar, XAxis, YAxis, CartesianGrid
+} from 'recharts';
+import {
+  ShieldAlert,
+  Trash2,
+  Package,
+  Activity,
+  AlertTriangle,
+  ClipboardCheck,
+  BarChart3,
+  Users,
+  Settings,
+  HelpCircle,
+  LogOut,
+  Plus,
+  Bell,
+  Menu,
+  X,
+  Sun,
+  Moon
+} from 'lucide-react';
+
+const COLORS = ['#FACC15', '#3B82F6', '#A855F7', '#64748B']; // yellow, blue, purple, slate
+
+export default function NuclearWasteApp() {
+  const [activeTab, setActiveTab] = useState<'dashboard' | 'identification' | 'decroissance' | 'sortie' | 'incidents' | 'reports' | 'users' | 'settings' | 'help'>('dashboard');
+  const [wasteItems, setWasteItems] = useState<WasteItem[]>(mockWaste);
+  const [incidents, setIncidents] = useState<Incident[]>(mockIncidents);
+  const [users, setUsers] = useState<User[]>(mockUsers);
+  const [logoutMode, setLogoutMode] = useState(false);
+  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+  const [showNotifications, setShowNotifications] = useState(false);
+  const [theme, setTheme] = useState<'dark' | 'light'>('dark');
+  
+  // Calculate specific metrics for dashboard
+  const metrics = useMemo(() => {
+    const totalStored = wasteItems.filter(w => w.status === 'stockage').length;
+    const liberable = wasteItems.filter(w => w.status === 'liberable').length;
+    const incidentsCount = incidents.length;
+    const nonConformes = wasteItems.filter(w => w.exitConformity === false).length + incidentsCount;
+    
+    const totalActivity = wasteItems
+      .filter(w => w.status === 'stockage')
+      .reduce((sum, item) => {
+         const hours = (new Date().getTime() - new Date(item.measureDate).getTime()) / 3600000;
+         const hl = hours / item.halfLife;
+         const residual = item.initialActivity * Math.pow(0.5, hl);
+         return sum + residual;
+      }, 0);
+
+    return { totalStored, liberable, incidentsCount, totalActivity, nonConformes };
+  }, [wasteItems, incidents]);
+
+  const statsData = [
+    { name: 'En stockage', value: metrics.totalStored },
+    { name: 'Libérables', value: metrics.liberable },
+    { name: 'Éliminés', value: wasteItems.filter(w => w.status === 'elimine').length },
+  ];
+
+  if (logoutMode) {
+    return (
+      <div className="h-screen bg-[#0A0B0D] text-[#E0E2E5] flex items-center justify-center font-sans overflow-hidden select-none">
+        <div className="w-full max-w-sm bg-[#15171C] p-8 rounded-2xl border border-white/5 flex flex-col items-center">
+          <div className="w-16 h-16 bg-yellow-400 rounded-xl flex items-center justify-center text-black font-black italic text-3xl mb-6">☢</div>
+          <h1 className="text-2xl font-black uppercase tracking-tighter mb-2">RadWaste <span className="text-yellow-400">Pro</span></h1>
+          <p className="text-xs text-slate-500 uppercase tracking-widest font-bold mb-8">Authentification requise</p>
+          
+          <div className="w-full space-y-4 mb-8">
+            <div>
+              <label className="block text-[10px] uppercase font-bold tracking-widest text-slate-500 mb-1">Identifiant</label>
+              <input type="text" placeholder="Entrez votre identifiant" className="w-full px-3 py-2 bg-[#0D0E12] border border-white/10 rounded-lg focus:outline-none focus:ring-1 focus:ring-yellow-400/50 focus:border-yellow-400/50 text-white text-sm" />
+            </div>
+            <div>
+              <label className="block text-[10px] uppercase font-bold tracking-widest text-slate-500 mb-1">Mot de passe</label>
+              <input type="password" placeholder="••••••••" className="w-full px-3 py-2 bg-[#0D0E12] border border-white/10 rounded-lg focus:outline-none focus:ring-1 focus:ring-yellow-400/50 focus:border-yellow-400/50 text-white text-sm" />
+            </div>
+          </div>
+          
+          <button onClick={() => setLogoutMode(false)} className="w-full py-4 bg-yellow-400 hover:bg-yellow-500 text-black rounded-lg font-black uppercase text-xs transition-colors">
+            Se connecter
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className={`h-screen flex flex-col font-sans overflow-hidden select-none print:h-auto print:min-h-screen print:bg-white print:text-black ${theme === 'light' ? 'light-theme' : 'bg-[#0A0B0D] text-[#E0E2E5]'}`}>
+      {/* Header */}
+      <header className="h-16 border-b border-white/10 flex shrink-0 items-center justify-between px-4 md:px-8 bg-[#0F1115] print:hidden z-20 relative">
+        <div className="flex items-center gap-4">
+          <button 
+            className="md:hidden p-2 rounded-lg hover:bg-white/5"
+            onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
+          >
+            {isMobileMenuOpen ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}
+          </button>
+          <div className="w-8 h-8 rounded flex items-center justify-center font-black italic bg-yellow-400 text-black">☢</div>
+          <h1 className="text-xl font-black uppercase tracking-tighter">RadWaste <span className="text-yellow-400">Pro</span></h1>
+        </div>
+        <div className="flex items-center gap-6">
+          <div className="hidden lg:flex gap-4 text-[10px] uppercase font-bold tracking-[0.2em] italic text-slate-500">
+            <span>Système: En ligne</span>
+            <span>Serveur: Labo-Chaud-01</span>
+          </div>
+          <div className="flex items-center gap-4 pl-0 lg:pl-6 lg:border-l border-white/10">
+            <button 
+              onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')} 
+              className="p-2 rounded-full transition-colors text-slate-400 hover:text-white hover:bg-white/10"
+            >
+              {theme === 'dark' ? <Sun className="w-5 h-5" /> : <Moon className="w-5 h-5" />}
+            </button>
+            <div className="relative">
+              <button 
+                onClick={() => setShowNotifications(!showNotifications)}
+                className="p-2 rounded-full transition-colors relative text-slate-400 hover:text-white hover:bg-white/10"
+              >
+                <Bell className="w-5 h-5" />
+                {metrics.liberable > 0 && (
+                  <span className="absolute top-1 right-1 w-2.5 h-2.5 bg-red-500 rounded-full border-2 border-inherit"></span>
+                )}
+              </button>
+              {showNotifications && (
+                <div className="absolute right-0 mt-2 w-72 rounded-xl shadow-2xl border overflow-hidden z-50 bg-[#15171C] border-white/10">
+                  <div className="px-4 py-3 border-b text-xs font-bold uppercase tracking-widest border-white/10 text-slate-400">Notifications</div>
+                  <div className="max-h-60 overflow-y-auto">
+                    {metrics.liberable > 0 ? (
+                      <div className="p-4 border-b last:border-0 border-white/5 hover:bg-white/5">
+                        <div className="text-red-500 font-bold text-xs uppercase mb-1">Action requise</div>
+                        <div className="text-sm text-white">{metrics.liberable} déchet(s) sont prêts à être libérés.</div>
+                      </div>
+                    ) : (
+                      <div className="p-6 text-center text-sm text-slate-500">Aucune notification</div>
+                    )}
+                  </div>
+                </div>
+              )}
+            </div>
+            <div className="flex items-center gap-3">
+              <div className="text-right hidden sm:block">
+                <div className="text-xs font-bold text-white">{users.length > 0 ? users[0].name : 'Utilisateur'}</div>
+                <div className="text-[10px] text-slate-500 uppercase">{users.length > 0 ? users[0].role : 'Invité'}</div>
+              </div>
+              <div className="w-10 h-10 rounded-full bg-slate-800 border border-white/20 flex items-center justify-center font-bold text-sm text-yellow-400">
+                {users.length > 0 ? users[0].name.split(' ').map((n: string) => n[0]).join('').substring(0, 2).toUpperCase() : 'U'}
+              </div>
+            </div>
+          </div>
+        </div>
+      </header>
+
+      <div className="flex flex-1 overflow-hidden print:overflow-visible relative">
+        {/* Mobile Menu Overlay */}
+        {isMobileMenuOpen && (
+          <div 
+            className="fixed inset-0 bg-black/50 z-30 md:hidden backdrop-blur-sm"
+            onClick={() => setIsMobileMenuOpen(false)}
+          />
+        )}
+        
+        {/* Sidebar Navigation */}
+        <aside className={`w-64 border-r flex flex-col py-4 print:hidden absolute md:relative z-40 h-full transition-transform duration-300 md:translate-x-0 ${isMobileMenuOpen ? 'translate-x-0' : '-translate-x-full'} bg-[#0D0E12] border-white/5`}>
+          <nav className="flex-1 px-4 space-y-0.5 overflow-y-auto" style={{ scrollbarWidth: 'thin' }}>
+            <div className="text-[10px] uppercase tracking-widest text-slate-600 font-bold mb-4 px-4">Modules Principaux</div>
+            <NavButton active={activeTab === 'dashboard'} onClick={() => { setActiveTab('dashboard'); setIsMobileMenuOpen(false); }} icon={<BarChart3 className="w-5 h-5"/>} label="Tableau de Bord" />
+            <NavButton active={activeTab === 'identification'} onClick={() => { setActiveTab('identification'); setIsMobileMenuOpen(false); }} icon={<Package className="w-5 h-5"/>} label="Identification & Stockage" />
+            <NavButton active={activeTab === 'decroissance'} onClick={() => { setActiveTab('decroissance'); setIsMobileMenuOpen(false); }} icon={<Activity className="w-5 h-5"/>} label="Suivi de Décroissance" />
+            <NavButton active={activeTab === 'sortie'} onClick={() => { setActiveTab('sortie'); setIsMobileMenuOpen(false); }} icon={<Trash2 className="w-5 h-5"/>} label="Sortie & Élimination" />
+            <NavButton active={activeTab === 'incidents'} onClick={() => { setActiveTab('incidents'); setIsMobileMenuOpen(false); }} icon={<AlertTriangle className="w-5 h-5"/>} label="Gestion des Incidents" />
+            <NavButton active={activeTab === 'reports'} onClick={() => { setActiveTab('reports'); setIsMobileMenuOpen(false); }} icon={<ClipboardCheck className="w-5 h-5"/>} label="Rapports Automatiques" />
+            <NavButton active={activeTab === 'users'} onClick={() => { setActiveTab('users'); setIsMobileMenuOpen(false); }} icon={<Users className="w-5 h-5"/>} label="Gestion Utilisateurs" />
+
+            <div className="pt-6 pb-2">
+              <div className="text-[10px] uppercase tracking-widest text-slate-600 font-bold mb-2 px-4 border-t border-white/5 pt-4">Système</div>
+            </div>
+            <NavButton active={activeTab === 'settings'} onClick={() => { setActiveTab('settings'); setIsMobileMenuOpen(false); }} icon={<Settings className="w-5 h-5"/>} label="Paramètres" />
+            <NavButton active={activeTab === 'help'} onClick={() => { setActiveTab('help'); setIsMobileMenuOpen(false); }} icon={<HelpCircle className="w-5 h-5"/>} label="Aide & Documentation" />
+            <button onClick={() => setLogoutMode(true)} className="w-full flex items-center gap-4 px-4 py-2 mt-2 rounded-xl text-red-400 hover:bg-white/5 hover:text-red-300 transition-all font-black text-xs group cursor-pointer border border-transparent">
+              <LogOut className="w-5 h-5" />
+              <span>Déconnexion</span>
+            </button>
+          </nav>
+          <div className="px-8 py-4 shrink-0">
+            <div className="p-4 bg-yellow-400/5 border border-yellow-400/20 rounded-xl">
+              <div className="text-[10px] text-yellow-400 font-black uppercase mb-1">Alertes</div>
+              <div className="text-xs text-white leading-tight font-medium">{metrics.liberable} Déchets à libérer d&apos;urgence.</div>
+            </div>
+          </div>
+        </aside>
+
+        {/* Main Content Area */}
+        <main className="flex-1 flex flex-col bg-[#0A0B0D] overflow-y-auto overflow-x-hidden print:overflow-visible print:bg-white">
+          <section className="animate-in fade-in slide-in-from-bottom-4 duration-500 p-4 md:p-8 flex-1 flex flex-col print:block print:p-0">
+            <header className="mb-8 shrink-0 print:hidden">
+              <h2 className="text-2xl font-black italic text-white tracking-tighter uppercase">
+                {activeTab === 'dashboard' && 'Tableau de Bord Général'}
+                {activeTab === 'identification' && 'Identification & Stockage'}
+                {activeTab === 'decroissance' && 'Suivi de Décroissance'}
+                {activeTab === 'sortie' && 'Contrôle & Élimination'}
+                {activeTab === 'incidents' && 'Registre des Incidents'}
+                {activeTab === 'reports' && 'Rapports & Conformité'}
+                {activeTab === 'users' && 'Gestion des Utilisateurs'}
+                {activeTab === 'settings' && 'Paramètres Système'}
+                {activeTab === 'help' && 'Aide & Documentation'}
+              </h2>
+            </header>
+
+            {activeTab === 'dashboard' && (
+              <DashboardView metrics={metrics} statsData={statsData} wasteItems={wasteItems} setActiveTab={setActiveTab} />
+            )}
+            {activeTab === 'identification' && (
+              <IdentificationView wasteItems={wasteItems} setWasteItems={setWasteItems} />
+            )}
+            {activeTab === 'decroissance' && (
+              <DecroissanceView wasteItems={wasteItems} setWasteItems={setWasteItems} />
+            )}
+            {activeTab === 'sortie' && (
+              <SortieView wasteItems={wasteItems} setWasteItems={setWasteItems} />
+            )}
+            {activeTab === 'incidents' && (
+              <IncidentsView incidents={incidents} setIncidents={setIncidents} wasteItems={wasteItems} />
+            )}
+            {activeTab === 'reports' && (
+              <ReportsView wasteItems={wasteItems} />
+            )}
+            {activeTab === 'users' && (
+              <UsersView users={users} setUsers={setUsers} />
+            )}
+            {activeTab === 'settings' && (
+              <SettingsView />
+            )}
+            {activeTab === 'help' && (
+              <HelpView />
+            )}
+          </section>
+        </main>
+      </div>
+
+      <footer className="h-8 bg-black border-t border-white/10 flex items-center justify-between px-8 text-[9px] font-bold uppercase tracking-[0.2em] text-slate-600 shrink-0 hidden md:flex">
+        <div>Conformité ASN/AFNOR: Active-2023.v4</div>
+        <div className="flex gap-6">
+          <span>Capacité de stockage: 78.4%</span>
+          <span>Capteurs: Actifs</span>
+          <span className="text-yellow-600">Heure locale: 14:48:12</span>
+        </div>
+      </footer>
+    </div>
+  );
+}
+
+// ---------------------------
+// VIEW COMPONENTS
+// ---------------------------
+
+function DashboardView({ metrics, statsData, wasteItems, setActiveTab }: any) {
+  const radionuclideData = useMemo(() => {
+    const counts: Record<string, number> = {};
+    wasteItems.forEach((w: any) => {
+      if (w.status !== 'elimine') {
+        counts[w.radionuclide] = (counts[w.radionuclide] || 0) + 1;
+      }
+    });
+    return Object.keys(counts).map(key => ({
+      name: key,
+      count: counts[key]
+    }));
+  }, [wasteItems]);
+
+  return (
+    <div className="space-y-6 flex-1 flex flex-col">
+      {/* Quick Actions */}
+      <div className="flex flex-wrap gap-4 shrink-0">
+        <button onClick={() => setActiveTab('identification')} className="px-6 py-3 bg-yellow-400 hover:bg-yellow-500 text-black rounded-lg font-black uppercase text-xs flex items-center justify-center gap-2 transition-colors">
+          <Plus className="w-4 h-4" /> Nouveau Déchet
+        </button>
+        <button onClick={() => setActiveTab('sortie')} className="px-6 py-3 bg-white/5 hover:bg-white/10 text-white border border-white/10 rounded-lg font-black uppercase text-xs flex items-center justify-center gap-2 transition-colors">
+          <Trash2 className="w-4 h-4" /> Libérer des déchets
+        </button>
+        <button onClick={() => setActiveTab('reports')} className="px-6 py-3 bg-white/5 hover:bg-white/10 text-white border border-white/10 rounded-lg font-black uppercase text-xs flex items-center justify-center gap-2 transition-colors">
+          <ClipboardCheck className="w-4 h-4" /> Registre PDF
+        </button>
+      </div>
+
+      {/* KPI Cards */}
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 shrink-0">
+        <KPICard title="En Stockage" value={metrics.totalStored} icon={<Package className="w-4 h-4"/>} />
+        <KPICard title="Activité Restante (MBq)" value={metrics.totalActivity.toFixed(2)} icon={<Activity className="w-4 h-4"/>} valueColor="text-yellow-400" />
+        <KPICard title="Libérables" value={metrics.liberable} icon={<Trash2 className="w-4 h-4"/>} />
+        <KPICard title="Non Conformes / Incidents" value={metrics.nonConformes} icon={<AlertTriangle className="w-4 h-4"/>} valueColor="text-red-400" />
+      </div>
+
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 shrink-0">
+        {/* Charts */}
+        <div className="bg-[#15171C] p-6 rounded-2xl border border-white/5 flex flex-col min-h-[250px]">
+          <h3 className="text-xs text-slate-500 font-bold uppercase tracking-wider mb-4">Répartition par Statut</h3>
+          <div className="flex-1">
+            <ResponsiveContainer width="100%" height="100%">
+              <PieChart>
+                <Pie data={statsData} cx="50%" cy="50%" innerRadius={60} outerRadius={80} paddingAngle={5} dataKey="value" stroke="none">
+                  {statsData.map((entry: any, index: number) => (
+                     <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
+                  ))}
+                </Pie>
+                <RechartsTooltip contentStyle={{ backgroundColor: '#0D0E12', borderColor: '#334155', borderRadius: '8px' }} itemStyle={{ color: '#E0E2E5' }} />
+                <Legend wrapperStyle={{ fontSize: '12px', fontWeight: 'bold' }} />
+              </PieChart>
+            </ResponsiveContainer>
+          </div>
+        </div>
+
+        <div className="bg-[#15171C] p-6 rounded-2xl border border-white/5 flex flex-col min-h-[250px]">
+          <h3 className="text-xs text-slate-500 font-bold uppercase tracking-wider mb-4">Volume par Radionucléide</h3>
+          <div className="flex-1">
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart data={radionuclideData}>
+                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#334155" />
+                <XAxis dataKey="name" stroke="#64748B" fontSize={10} tickLine={false} axisLine={false} />
+                <YAxis allowDecimals={false} stroke="#64748B" fontSize={10} tickLine={false} axisLine={false} />
+                <RechartsTooltip cursor={{ fill: '#ffffff10' }} contentStyle={{ backgroundColor: '#0D0E12', borderColor: '#334155', borderRadius: '8px' }} />
+                <Bar dataKey="count" fill="#FACC15" radius={[4, 4, 0, 0]} />
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+        </div>
+      </div>
+      
+      <div className="bg-[#15171C] border border-white/5 rounded-3xl flex flex-col flex-1 overflow-hidden shrink-0 min-h-[300px]">
+        <div className="flex items-center justify-between p-6 border-b border-white/5">
+          <h2 className="text-xl font-black italic uppercase">Déchets libérables d&apos;urgence</h2>
+        </div>
+        <div className="flex-1 overflow-auto">
+          <table className="w-full text-left">
+            <thead>
+              <tr className="text-[10px] uppercase font-black tracking-widest text-slate-500 border-b border-white/5">
+                <th className="px-6 py-4">ID</th>
+                <th className="px-6 py-4">Type</th>
+                <th className="px-6 py-4">Radionucléide</th>
+                <th className="px-6 py-4">Entrée</th>
+                <th className="px-6 py-4">Statut</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-white/5">
+              {wasteItems.filter((w: any) => w.status === 'liberable').map((w: any) => (
+                <tr key={w.id} className="group hover:bg-white/[0.02] transition-colors">
+                  <td className="px-6 py-4 font-mono text-xs text-yellow-400">{w.id}</td>
+                  <td className="px-6 py-4 text-xs font-bold capitalize">{w.type}</td>
+                  <td className="px-6 py-4 text-sm font-black italic">{w.radionuclide}</td>
+                  <td className="px-6 py-4 text-xs font-bold text-slate-400">{new Date(w.storageEntryDate).toLocaleDateString('fr-FR')}</td>
+                  <td className="px-6 py-4">
+                    <span className="px-3 py-1 bg-green-500/20 text-green-400 text-[10px] font-black uppercase rounded-full">Libérable</span>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+const calculateResidual = (w: any) => {
+  const hours = (new Date().getTime() - new Date(w.measureDate).getTime()) / 3600000;
+  const hl = Math.max(0, hours / w.halfLife);
+  return (w.initialActivity * Math.pow(0.5, hl)).toFixed(4);
+};
+
+const calculateDecayPercentage = (w: any) => {
+  const hours = (new Date().getTime() - new Date(w.measureDate).getTime()) / 3600000;
+  const hl = Math.max(0, hours / w.halfLife);
+  const pct = (1 - Math.pow(0.5, hl)) * 100;
+  return Math.min(100, pct).toFixed(1);
+};
+
+const getTheoreticalReleaseDate = (w: any) => {
+  if (w.initialActivity <= w.regulatoryClearanceLevel) return new Date(w.measureDate).toLocaleDateString('fr-FR');
+  const hoursNeeded = w.halfLife * (Math.log(w.regulatoryClearanceLevel / w.initialActivity) / Math.log(0.5));
+  const releaseDate = new Date(new Date(w.measureDate).getTime() + hoursNeeded * 3600000);
+  return releaseDate.toLocaleDateString('fr-FR');
+};
+
+function IdentificationView({ wasteItems, setWasteItems, users }: any) {
+  const [isAdding, setIsAdding] = useState(false);
+  const userOptions = users.map((u: any) => u.name);
+  const [formData, setFormData] = useState({
+    originService: 'labo chaud',
+    responsibleOperator: userOptions.length > 0 ? userOptions[0] : '',
+    type: 'solide',
+    radionuclide: 'Tc-99m',
+    initialActivity: '',
+    measureDate: new Date().toISOString().slice(0, 16),
+    doseRateContact: '',
+    doseRate1m: '',
+    halfLife: '',
+    regulatoryClearanceLevel: '0.1'
+  });
+
+  const handleChange = (e: any) => setFormData({ ...formData, [e.target.name]: e.target.value });
+
+  const handleCreateSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!formData.originService || !formData.type || !formData.radionuclide) return;
+
+    const isotopeCode = formData.radionuclide ? formData.radionuclide.replace('-', '').toUpperCase() : 'UNK';
+    const newItem: WasteItem = {
+      id: `WST-${isotopeCode}-${String(wasteItems.length + 1).padStart(3, '0')}`,
+      createdAt: new Date().toISOString(),
+      originService: formData.originService,
+      responsibleOperator: formData.responsibleOperator,
+      type: formData.type as any,
+      radionuclide: formData.radionuclide as any,
+      initialActivity: Number(formData.initialActivity) || 0,
+      measureDate: new Date(formData.measureDate).toISOString(),
+      doseRateContact: Number(formData.doseRateContact) || 0,
+      doseRate1m: Number(formData.doseRate1m) || ((Number(formData.doseRateContact) || 0) / 10),
+      halfLife: Number(formData.halfLife) || 6,
+      regulatoryClearanceLevel: Number(formData.regulatoryClearanceLevel) || 0.1,
+      storageEntryDate: new Date().toISOString(),
+      storageResponsible: 'Dr. Martin',
+      expectedDecayDuration: 10,
+      status: 'stockage'
+    };
+
+    setWasteItems([newItem, ...wasteItems]);
+    setIsAdding(false);
+    setFormData({ originService: 'labo chaud', responsibleOperator: userOptions.length > 0 ? userOptions[0] : '', type: 'solide', radionuclide: 'Tc-99m', initialActivity: '', measureDate: new Date().toISOString().slice(0, 16), doseRateContact: '', doseRate1m: '', halfLife: '', regulatoryClearanceLevel: '0.1' });
+  };
+
+  return (
+    <div className="space-y-6 flex-1 flex flex-col relative">
+      <div className="flex justify-between items-center bg-[#15171C] p-4 rounded-xl border border-white/5">
+        <div>
+          <h3 className="font-bold text-white uppercase text-sm">Identification et Stockage</h3>
+          <p className="text-xs text-slate-500">Ajout de nouveaux déchets dans le local.</p>
+        </div>
+        <button 
+          onClick={() => setIsAdding(!isAdding)}
+          className="bg-yellow-400 hover:bg-yellow-500 text-black px-4 py-2 font-black text-[10px] uppercase rounded-full transition-colors flex items-center gap-2"
+        >
+          {isAdding ? 'Annuler' : <><Plus className="w-3 h-3"/> Enregistrer un Déchet</>}
+        </button>
+      </div>
+
+      {isAdding && (
+        <form onSubmit={handleCreateSubmit} className="bg-[#15171C] p-6 rounded-2xl border border-white/5 animate-in fade-in zoom-in-95">
+          <h4 className="text-lg font-black italic uppercase mb-4 text-white">Nouveau Déchet</h4>
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 mb-6">
+            <FormSelect required label="Service d'origine" name="originService" value={formData.originService} onChange={handleChange} options={['labo chaud', 'salle d’injection', 'salle d’attente chaude', 'salle d’acquisition', 'salle de consultation chaude', 'salle d’interprétation']} />
+            <FormSelect required label="Opérateur" name="responsibleOperator" value={formData.responsibleOperator} onChange={handleChange} options={userOptions} />
+            <FormSelect required label="Type de déchet" name="type" value={formData.type} onChange={handleChange} options={['solide', 'liquide', 'biologique', 'seringue', 'flacon', 'tubulure', 'gants', 'compresses', 'autres']} />
+            <FormSelect required label="Radionucléide" name="radionuclide" value={formData.radionuclide} onChange={handleChange} options={['Tc-99m', 'I-131', 'F-18', 'Lu-177', 'Ga-68', 'Y-90', 'autres']} />
+            <FormInput required label="Activité initiale (MBq)" name="initialActivity" value={formData.initialActivity} onChange={handleChange} type="number" placeholder="250" />
+            <FormInput required label="Date de mesure" name="measureDate" value={formData.measureDate} onChange={handleChange} type="datetime-local" />
+            <FormInput required label="Demi-vie physique (h)" name="halfLife" value={formData.halfLife} onChange={handleChange} type="number" placeholder="6" />
+            <FormInput required label="Séuil réglementaire (MBq)" name="regulatoryClearanceLevel" value={formData.regulatoryClearanceLevel} onChange={handleChange} type="number" step="0.01" />
+            <FormInput required label="Débit au contact (µSv/h)" name="doseRateContact" value={formData.doseRateContact} onChange={handleChange} type="number" placeholder="10" />
+            <FormInput label="Débit à 1 mètre (µSv/h)" name="doseRate1m" value={formData.doseRate1m} onChange={handleChange} type="number" placeholder="1" />
+          </div>
+          <div className="flex justify-end gap-3">
+            <button type="button" onClick={() => setIsAdding(false)} className="px-4 py-2 border border-white/10 rounded-full font-black text-[10px] uppercase hover:bg-white/5">Annuler</button>
+            <button type="submit" className="px-4 py-2 bg-yellow-400 text-black rounded-full font-black text-[10px] uppercase hover:bg-yellow-500">Enregistrer</button>
+          </div>
+        </form>
+      )}
+
+      <div className="bg-[#15171C] border border-white/5 rounded-3xl flex flex-col flex-1 overflow-hidden shrink-0">
+        <div className="flex flex-col flex-1 overflow-auto">
+          <table className="w-full text-left">
+            <thead className="sticky top-0 bg-[#15171C] z-10 shadow-sm">
+              <tr className="text-[10px] uppercase font-black tracking-widest text-slate-500 border-b border-white/5">
+                <th className="px-6 py-4">ID</th>
+                <th className="px-6 py-4">Info</th>
+                <th className="px-6 py-4">Isotope</th>
+                <th className="px-6 py-4">Mesure Initiale</th>
+                <th className="px-6 py-4">Statut</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-white/5">
+              {wasteItems.filter((w: any) => w.status === 'stockage').map((w: any) => (
+                <tr key={w.id} className="group hover:bg-white/[0.02] transition-colors">
+                  <td className="px-6 py-4 font-mono text-xs text-yellow-400">{w.id}</td>
+                  <td className="px-6 py-4">
+                    <p className="capitalize font-bold text-white text-xs">{w.type}</p>
+                    <p className="text-xs text-slate-500 truncate max-w-[120px] mb-1">{w.originService}</p>
+                    <p className="text-[9px] uppercase tracking-widest text-slate-600">{w.responsibleOperator}</p>
+                  </td>
+                  <td className="px-6 py-4">
+                    <div className="text-sm font-black italic shadow-text">{w.radionuclide}</div>
+                    <p className="text-[10px] text-slate-500">T½: {w.halfLife}h</p>
+                  </td>
+                  <td className="px-6 py-4 text-xs font-mono">
+                    <span className="font-bold text-white">{w.initialActivity} MBq</span>
+                    <br/><span className="text-slate-500 text-[10px]">{new Date(w.measureDate).toLocaleString('fr-FR', {dateStyle: 'short', timeStyle: 'short'})}</span>
+                  </td>
+                  <td className="px-6 py-4">
+                    <span className="px-3 py-1 bg-blue-500/20 text-blue-400 text-[10px] font-black uppercase rounded-full">En Stockage</span>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function DecroissanceView({ wasteItems, setWasteItems }: any) {
+  const [isUpdating, setIsUpdating] = useState(false);
+
+  const handleCheckThresholds = () => {
+    setIsUpdating(true);
+    setTimeout(() => {
+      const updated = wasteItems.map((w: any) => {
+        if (w.status === 'stockage') {
+          const residual = parseFloat(calculateResidual(w));
+          if (residual <= w.regulatoryClearanceLevel) {
+            return { ...w, status: 'liberable' };
+          }
+        }
+        return w;
+      });
+      setWasteItems(updated);
+      setIsUpdating(false);
+    }, 600);
+  };
+
+  return (
+    <div className="space-y-6 flex-1 flex flex-col relative">
+      <div className="flex justify-between items-center bg-[#15171C] p-4 rounded-xl border border-white/5">
+        <div>
+          <h3 className="font-bold text-white uppercase text-sm">Suivi de Décroissance</h3>
+          <p className="text-xs text-slate-500">Surveillance de l&apos;activité résiduelle et libération automatique.</p>
+        </div>
+        <button 
+          onClick={handleCheckThresholds}
+          disabled={isUpdating}
+          className="bg-blue-500 hover:bg-blue-600 disabled:opacity-50 text-white px-4 py-2 font-black text-[10px] uppercase rounded-full transition-colors flex items-center gap-2"
+        >
+          {isUpdating ? 'Analyse en cours...' : <><Activity className="w-3 h-3"/> Vérifier les Seuils</>}
+        </button>
+      </div>
+
+      <div className="bg-[#15171C] border border-white/5 rounded-3xl flex flex-col flex-1 overflow-hidden shrink-0">
+        <div className="flex flex-col flex-1 overflow-auto">
+          <table className="w-full text-left">
+            <thead className="sticky top-0 bg-[#15171C] z-10 shadow-sm">
+              <tr className="text-[10px] uppercase font-black tracking-widest text-slate-500 border-b border-white/5">
+                <th className="px-6 py-4">ID</th>
+                <th className="px-6 py-4">Isotope</th>
+                <th className="px-6 py-4">Mesure Initiale</th>
+                <th className="px-6 py-4 bg-yellow-400/5 text-yellow-400 border-l border-yellow-400/10">Activité Résiduelle</th>
+                <th className="px-6 py-4">Statut</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-white/5">
+              {wasteItems.filter((w: any) => w.status !== 'elimine').map((w: any) => (
+                <tr key={w.id} className="group hover:bg-white/[0.02] transition-colors">
+                  <td className="px-6 py-4 font-mono text-xs text-yellow-400">{w.id}</td>
+                  <td className="px-6 py-4">
+                    <div className="text-sm font-black italic shadow-text">{w.radionuclide}</div>
+                    <p className="text-[10px] text-slate-500">T½: {w.halfLife}h</p>
+                  </td>
+                  <td className="px-6 py-4 text-xs font-mono">
+                    <span className="font-bold text-white">{w.initialActivity} MBq</span>
+                    <br/><span className="text-slate-500 text-[10px]">{new Date(w.measureDate).toLocaleString('fr-FR', {dateStyle: 'short', timeStyle: 'short'})}</span>
+                  </td>
+                  <td className="px-6 py-4 border-l border-white/5 font-mono text-xs font-black text-yellow-400 bg-yellow-400/5">
+                    {calculateResidual(w)} MBq
+                    <div className="text-[10px] text-slate-500 font-sans font-medium mt-1">Décroissance: {calculateDecayPercentage(w)}%</div>
+                    <div className="text-[10px] text-slate-400 font-sans font-medium">Date sortie estimée: {getTheoreticalReleaseDate(w)}</div>
+                  </td>
+                  <td className="px-6 py-4">
+                    {w.status === 'stockage' && <span className="px-3 py-1 bg-blue-500/20 text-blue-400 text-[10px] font-black uppercase rounded-full">En Stockage</span>}
+                    {w.status === 'liberable' && <span className="px-3 py-1 animate-pulse bg-green-500/20 text-green-400 text-[10px] font-black uppercase rounded-full">Libérable</span>}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function SortieView({ wasteItems, setWasteItems, users }: any) {
+  const [controlItem, setControlItem] = useState<WasteItem | null>(null);
+  const userOptions = users.map((u: any) => u.name);
+  const [controlData, setControlData] = useState({
+    exitDoseRate: '',
+    exitConformity: 'Oui',
+    exitController: userOptions.length > 0 ? userOptions[0] : '',
+    eliminationMode: 'Filière ANDRA'
+  });
+
+  const handleControlChange = (e: any) => setControlData({ ...controlData, [e.target.name]: e.target.value });
+
+  const handleControlSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!controlItem) return;
+
+    const updatedList = wasteItems.map((w: WasteItem) => {
+      if (w.id === controlItem.id) {
+        return {
+          ...w,
+          status: 'elimine',
+          exitControlDate: new Date().toISOString(),
+          exitDoseRate: Number(controlData.exitDoseRate),
+          exitConformity: controlData.exitConformity === 'Oui',
+          exitController: controlData.exitController,
+          eliminationDate: new Date().toISOString(),
+          eliminationMode: controlData.eliminationMode,
+          eliminationResponsible: controlData.exitController
+        };
+      }
+      return w;
+    });
+
+    setWasteItems(updatedList);
+    setControlItem(null);
+    setControlData({ exitDoseRate: '', exitConformity: 'Oui', exitController: userOptions.length > 0 ? userOptions[0] : '', eliminationMode: 'Filière ANDRA' });
+  };
+
+  return (
+    <div className="space-y-6 flex-1 flex flex-col relative">
+      {controlItem && (
+        <div className="absolute inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm animate-in fade-in">
+          <div className="bg-[#15171C] p-6 rounded-2xl border border-white/10 shadow-2xl w-full max-w-lg">
+            <div className="flex justify-between items-center mb-6 border-b border-white/5 pb-4">
+               <div>
+                 <h3 className="text-lg font-black italic uppercase text-white">Contrôle avant Sortie</h3>
+                 <p className="text-xs text-yellow-400 font-mono mt-1">{controlItem.id}</p>
+               </div>
+               <button onClick={() => setControlItem(null)} className="text-slate-500 hover:text-white">✕</button>
+            </div>
+            <form onSubmit={handleControlSubmit} className="space-y-4">
+               <div className="grid grid-cols-2 gap-4">
+                 <FormInput required label="Débit de dose mesuré (µSv/h)" type="number" name="exitDoseRate" value={controlData.exitDoseRate} onChange={handleControlChange} placeholder="< 0.1" />
+                 <FormSelect required label="Conformité réglementaire" name="exitConformity" value={controlData.exitConformity} onChange={handleControlChange} options={['Oui', 'Non']} />
+               </div>
+               <div className="grid grid-cols-2 gap-4">
+                 <FormSelect required label="Mode d'élimination" name="eliminationMode" value={controlData.eliminationMode} onChange={handleControlChange} options={['Filière ANDRA', 'Incinérateur classique', 'Déchets standards', 'Autre']} />
+                 <FormSelect required label="Contrôleur / Signature" name="exitController" value={controlData.exitController} onChange={handleControlChange} options={userOptions} />
+               </div>
+               <div className="pt-4 flex justify-end gap-3 border-t border-white/5 mt-4">
+                 <button type="button" onClick={() => setControlItem(null)} className="px-4 py-2 border border-white/10 rounded-full font-black text-[10px] uppercase hover:bg-white/5">Annuler</button>
+                 <button type="submit" className="px-4 py-2 bg-green-500 text-white rounded-full font-black text-[10px] uppercase hover:bg-green-600">Valider l&apos;Élimination</button>
+               </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      <div className="bg-[#15171C] border border-white/5 rounded-3xl flex flex-col flex-1 overflow-hidden shrink-0">
+        <div className="flex flex-col flex-1 overflow-auto">
+          <table className="w-full text-left">
+            <thead className="sticky top-0 bg-[#15171C] z-10 shadow-sm">
+              <tr className="text-[10px] uppercase font-black tracking-widest text-slate-500 border-b border-white/5">
+                <th className="px-6 py-4">ID</th>
+                <th className="px-6 py-4">Activité Résiduelle</th>
+                <th className="px-6 py-4">Statut</th>
+                <th className="px-6 py-4">Contrôle / Action</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-white/5">
+              {wasteItems.filter((w: any) => w.status === 'liberable' || w.status === 'elimine').map((w: any) => (
+                <tr key={w.id} className="group hover:bg-white/[0.02] transition-colors">
+                  <td className="px-6 py-4 font-mono text-xs text-yellow-400">
+                    {w.id}
+                    <div className="text-white font-bold capitalize mt-1 font-sans">{w.type}</div>
+                  </td>
+                 <td className="px-6 py-4 text-xs font-mono">
+                    <span className="font-bold text-white">{calculateResidual(w)} MBq</span>
+                  </td>
+                  <td className="px-6 py-4">
+                    {w.status === 'liberable' && <span className="px-3 py-1 animate-pulse bg-green-500/20 text-green-400 text-[10px] font-black uppercase rounded-full">Libérable</span>}
+                    {w.status === 'elimine' && <span className="px-3 py-1 bg-slate-500/20 text-slate-400 text-[10px] font-black uppercase rounded-full">Éliminé</span>}
+                  </td>
+                  <td className="px-6 py-4">
+                     {w.status === 'liberable' && (
+                       <button onClick={() => setControlItem(w)} className="text-yellow-400 hover:text-yellow-300 font-black uppercase text-[10px] border border-yellow-400/20 px-3 py-1 rounded-full">Action →</button>
+                     )}
+                     {w.status === 'elimine' && (
+                       <div className="text-slate-500 text-[10px] font-medium leading-relaxed">
+                         Contrôlé le <span className="font-bold text-slate-300">{new Date(w.eliminationDate || '').toLocaleDateString('fr-FR')}</span><br/>
+                         Mode: <span className="font-bold text-slate-300">{w.eliminationMode}</span>
+                       </div>
+                     )}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function IncidentsView({ incidents, setIncidents, wasteItems, users }: any) {
+  const [isAdding, setIsAdding] = useState(false);
+  const userOptions = users.map((u: any) => u.name);
+  const [formData, setFormData] = useState({
+    type: 'Déversement accidentel',
+    personnelFunction: userOptions.length > 0 ? userOptions[0] : '',
+    doseRateBefore: '',
+    correctiveActions: '',
+    doseRateAfter: '',
+    wasteId: ''
+  });
+
+  const handleChange = (e: any) => setFormData({ ...formData, [e.target.name]: e.target.value });
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    const newIncident: Incident = {
+      id: `INC-2024-${String(incidents.length + 1).padStart(3, '0')}`,
+      date: new Date().toISOString(),
+      personnelFunction: formData.personnelFunction,
+      type: formData.type as any,
+      doseRateBefore: Number(formData.doseRateBefore),
+      correctiveActions: formData.correctiveActions,
+      doseRateAfter: Number(formData.doseRateAfter),
+      wasteId: formData.wasteId
+    };
+    setIncidents([newIncident, ...incidents]);
+    setIsAdding(false);
+    setFormData({type: 'Déversement accidentel', personnelFunction: userOptions.length > 0 ? userOptions[0] : '', doseRateBefore: '', correctiveActions: '', doseRateAfter: '', wasteId: ''});
+  };
+
+  return (
+    <div className="space-y-6 flex-1 flex flex-col">
+       <div className="bg-red-500/10 border border-red-500/20 p-6 rounded-2xl flex items-start gap-4">
+         <AlertTriangle className="text-red-500 shrink-0 mt-1" />
+         <div className="flex-1">
+           <h3 className="text-red-500 font-bold text-sm uppercase">Protocole d&apos;urgence</h3>
+           <p className="text-red-200/80 mt-1 text-xs">En cas de déversement ou contamination, isolez le périmètre, utilisez le kit de décontamination et notifiez immédiatement le conseiller en radioprotection.</p>
+           <button onClick={() => setIsAdding(!isAdding)} className="mt-4 bg-red-500 hover:bg-red-600 text-white px-4 py-2 rounded-full font-black text-[10px] uppercase transition shadow-sm">
+             {isAdding ? 'Annuler' : 'Déclarer un incident'}
+           </button>
+         </div>
+       </div>
+
+      {isAdding && (
+        <form onSubmit={handleSubmit} className="bg-[#15171C] p-6 rounded-2xl border border-white/5 animate-in fade-in zoom-in-95">
+          <h4 className="text-lg font-black italic uppercase mb-4 text-white">Nouveau Rapport d&apos;Incident</h4>
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 mb-6">
+            <FormSelect required label="Type d'incident" name="type" value={formData.type} onChange={handleChange} options={['Déversement accidentel', 'Contamination', 'Perte de déchet']} />
+            <FormSelect required label="Radioprotection / Personne Impliquée" name="personnelFunction" value={formData.personnelFunction} onChange={handleChange} options={userOptions} />
+            <FormSelect label="ID Déchet (Optionnel)" name="wasteId" value={formData.wasteId} onChange={handleChange} options={wasteItems.map((w: any) => w.id)} />
+            <FormInput required label="Dose Initiale (µSv/h)" name="doseRateBefore" type="number" value={formData.doseRateBefore} onChange={handleChange} />
+            <FormInput required label="Dose Finale après contrôle (µSv/h)" name="doseRateAfter" type="number" value={formData.doseRateAfter} onChange={handleChange} />
+            <div className="lg:col-span-3">
+              <label className="block text-[10px] uppercase font-bold tracking-widest text-slate-500 mb-1">Actions Correctives</label>
+              <textarea required name="correctiveActions" value={formData.correctiveActions} onChange={handleChange} rows={2} className="w-full px-3 py-2 bg-[#0D0E12] border border-white/10 rounded-lg focus:outline-none focus:ring-1 focus:ring-yellow-400/50 text-white text-sm"></textarea>
+            </div>
+          </div>
+          <div className="flex justify-end gap-3">
+            <button type="button" onClick={() => setIsAdding(false)} className="px-4 py-2 border border-white/10 rounded-full font-black text-[10px] uppercase hover:bg-white/5">Annuler</button>
+            <button type="submit" className="px-4 py-2 bg-red-500 text-white rounded-full font-black text-[10px] uppercase hover:bg-red-600">Enregistrer l&apos;incident</button>
+          </div>
+        </form>
+      )}
+
+       <div className="bg-[#15171C] rounded-3xl border border-white/5 overflow-hidden shrink-0">
+         {incidents.map((inc: any) => (
+           <div key={inc.id} className="p-6 border-b border-white/5 last:border-0 hover:bg-white/[0.02] transition">
+             <div className="flex justify-between items-start mb-2">
+               <div>
+                 <span className="font-mono text-xs text-yellow-400 mr-3">{inc.id}</span>
+                 <span className="px-2 py-0.5 bg-red-500/20 text-red-400 text-[10px] font-black uppercase rounded-full">{inc.type}</span>
+               </div>
+               <span className="text-xs font-bold text-slate-500">{new Date(inc.date).toLocaleDateString('fr-FR')}</span>
+             </div>
+             <p className="text-xs text-slate-400 mb-4"><span className="font-bold text-slate-300">Implication:</span> {inc.personnelFunction} | <span className="font-bold text-slate-300">Déchet:</span> <span className="font-mono text-white">{inc.wasteId || 'N/A'}</span></p>
+             <div className="bg-[#0D0E12] rounded-xl p-4 grid grid-cols-1 md:grid-cols-3 gap-4 text-xs mt-3 border border-white/5">
+               <div>
+                  <p className="text-slate-500 mb-1 uppercase font-bold text-[10px]">Dose Initiale</p>
+                  <p className="font-mono text-red-400 font-black italic">{inc.doseRateBefore} µSv/h</p>
+               </div>
+                <div className="md:col-span-2">
+                  <p className="text-slate-500 mb-1 uppercase font-bold text-[10px]">Actions Correctives</p>
+                  <p className="text-slate-300 font-medium">{inc.correctiveActions}</p>
+               </div>
+               <div>
+                  <p className="text-slate-500 mb-1 uppercase font-bold text-[10px]">Dose Finale</p>
+                  <p className="font-mono text-green-400 font-black italic">{inc.doseRateAfter} µSv/h</p>
+               </div>
+             </div>
+           </div>
+         ))}
+       </div>
+    </div>
+  );
+}
+
+function ReportsView({ wasteItems }: any) {
+  const [printReport, setPrintReport] = useState<string | null>(null);
+
+  const handlePrint = (reportName: string) => {
+    setPrintReport(reportName);
+    setTimeout(() => {
+      window.print();
+    }, 100);
+  };
+
+  useEffect(() => {
+    const afterPrint = () => setPrintReport(null);
+    window.addEventListener('afterprint', afterPrint);
+    return () => window.removeEventListener('afterprint', afterPrint);
+  }, []);
+
+  return (
+    <div className="space-y-6 flex-1 flex flex-col">
+      <div className={`grid grid-cols-1 md:grid-cols-3 gap-6 ${printReport ? 'hidden' : 'block'} print:hidden`}>
+        <ReportCard onClick={() => handlePrint('REGISTRE')} title="Registre Réglementaire ASN" description="Export complet des mouvements de déchets pour le registre obligatoire." icon={<ClipboardCheck />} />
+        <ReportCard onClick={() => handlePrint('MENSUEL')} title="Rapport Mensuel" description="Bilan quantitatif des activités et éliminations du mois." icon={<BarChart3 />} />
+        <ReportCard onClick={() => handlePrint('INVENTAIRE')} title="Inventaire Radiologique" description="Instantané de la radioactivité totale présente dans le local de stockage." icon={<Activity />} />
+      </div>
+
+      {printReport && (
+        <div className="bg-white text-black min-h-screen">
+          {printReport === 'REGISTRE' && <PrintRegistre wasteItems={wasteItems} />}
+          {printReport === 'MENSUEL' && <PrintMensuel wasteItems={wasteItems} />}
+          {printReport === 'INVENTAIRE' && <PrintInventaire wasteItems={wasteItems} />}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function PrintRegistre({ wasteItems }: any) {
+  return (
+    <div className="font-sans text-black">
+      <div className="border-b-2 border-black pb-4 mb-6 text-black">
+        <h1 className="text-2xl font-bold uppercase mb-1 text-black">Registre Réglementaire des Déchets Radioactifs</h1>
+        <p className="text-sm font-medium">Généré le : {new Date().toLocaleString('fr-FR')}</p>
+        <p className="text-sm font-medium">Établissement : Centre Hospitalier / Service de Médecine Nucléaire</p>
+      </div>
+
+      <table className="w-full text-left text-xs border-collapse border border-gray-300">
+        <thead>
+          <tr className="bg-gray-100 uppercase">
+            <th className="border border-gray-300 p-2 font-bold text-black">Numéro Unique</th>
+            <th className="border border-gray-300 p-2 font-bold text-black">Entrée</th>
+            <th className="border border-gray-300 p-2 font-bold text-black">Isotope</th>
+            <th className="border border-gray-300 p-2 font-bold text-black">Act. Init (MBq)</th>
+            <th className="border border-gray-300 p-2 font-bold text-black">Statut</th>
+            <th className="border border-gray-300 p-2 font-bold text-black">Sortie</th>
+          </tr>
+        </thead>
+        <tbody>
+          {wasteItems.map((w: any) => (
+             <tr key={w.id}>
+                <td className="border border-gray-300 p-2 font-mono text-black">{w.id}</td>
+                <td className="border border-gray-300 p-2 text-black">{new Date(w.storageEntryDate).toLocaleDateString('fr-FR')}</td>
+                <td className="border border-gray-300 p-2 text-black font-bold">{w.radionuclide}</td>
+                <td className="border border-gray-300 p-2 text-black">{w.initialActivity}</td>
+                <td className="border border-gray-300 p-2 capitalize text-black">{w.status}</td>
+                <td className="border border-gray-300 p-2 text-black">{w.eliminationDate ? new Date(w.eliminationDate).toLocaleDateString('fr-FR') : '-'}</td>
+             </tr>
+          ))}
+        </tbody>
+      </table>
+      
+      <div className="pt-8 mt-12 border-t border-gray-400">
+        <p className="text-xs uppercase tracking-wider font-bold">Signature Responsable de la Radioprotection :</p>
+      </div>
+    </div>
+  );
+}
+
+function PrintInventaire({ wasteItems }: any) {
+  const stock = wasteItems.filter((w: any) => w.status === 'stockage' || w.status === 'liberable');
+  return (
+    <div className="font-sans text-black">
+      <div className="border-b-2 border-black pb-4 mb-6">
+        <h1 className="text-2xl font-bold uppercase mb-1 text-black">Inventaire Radiologique</h1>
+        <p className="text-sm text-black">Généré le : {new Date().toLocaleString('fr-FR')}</p>
+      </div>
+      <p className="mb-4">Total des déchets actuellement en local de décroissance : <strong>{stock.length}</strong></p>
+      <table className="w-full text-left text-xs border-collapse border border-gray-300">
+        <thead>
+          <tr className="bg-gray-100 uppercase">
+             <th className="border border-gray-300 p-2 text-black font-bold">ID</th>
+             <th className="border border-gray-300 p-2 text-black font-bold">Isotope</th>
+             <th className="border border-gray-300 p-2 text-black font-bold">Date Entrée</th>
+             <th className="border border-gray-300 p-2 text-black font-bold">Activité Résiduelle</th>
+             <th className="border border-gray-300 p-2 text-black font-bold">Libération Prévue</th>
+          </tr>
+        </thead>
+        <tbody>
+          {stock.map((w: any) => (
+             <tr key={w.id}>
+               <td className="border border-gray-300 p-2 font-mono text-black">{w.id}</td>
+               <td className="border border-gray-300 p-2 font-bold text-black">{w.radionuclide}</td>
+               <td className="border border-gray-300 p-2 text-black">{new Date(w.storageEntryDate).toLocaleDateString('fr-FR')}</td>
+               <td className="border border-gray-300 p-2 text-black">{calculateResidual(w)} MBq</td>
+               <td className="border border-gray-300 p-2 text-black">{getTheoreticalReleaseDate(w)}</td>
+             </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+function PrintMensuel({ wasteItems }: any) {
+  const elimines = wasteItems.filter((w: any) => w.status === 'elimine');
+  return (
+    <div className="font-sans text-black">
+      <div className="border-b-2 border-black pb-4 mb-6">
+        <h1 className="text-2xl font-bold uppercase mb-1 text-black">Rapport Mensuel des Éliminations</h1>
+        <p className="text-sm text-black">Généré le : {new Date().toLocaleString('fr-FR')}</p>
+      </div>
+      <table className="w-full text-left text-xs border-collapse border border-gray-300">
+        <thead>
+          <tr className="bg-gray-100 uppercase">
+             <th className="border border-gray-300 p-2 text-black font-bold">ID</th>
+             <th className="border border-gray-300 p-2 text-black font-bold">Date Sortie</th>
+             <th className="border border-gray-300 p-2 text-black font-bold">Isotope</th>
+             <th className="border border-gray-300 p-2 text-black font-bold">Mode d'élimination</th>
+             <th className="border border-gray-300 p-2 text-black font-bold">Visa Contrôleur</th>
+          </tr>
+        </thead>
+        <tbody>
+          {elimines.map((w: any) => (
+             <tr key={w.id}>
+               <td className="border border-gray-300 p-2 font-mono text-black">{w.id}</td>
+               <td className="border border-gray-300 p-2 text-black">{new Date(w.eliminationDate || '').toLocaleDateString('fr-FR')}</td>
+               <td className="border border-gray-300 p-2 font-bold text-black">{w.radionuclide}</td>
+               <td className="border border-gray-300 p-2 text-black">{w.eliminationMode}</td>
+               <td className="border border-gray-300 p-2 text-black">{w.exitController}</td>
+             </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+function UsersView({ users, setUsers }: any) {
+  const [isAdding, setIsAdding] = useState(false);
+  const [formData, setFormData] = useState({ name: '', role: 'Manipulateur', email: '' });
+
+  const handleChange = (e: any) => setFormData({ ...formData, [e.target.name]: e.target.value });
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    let defaultPermissions = ['lecture'];
+    if (formData.role === 'Administrateur') defaultPermissions = ['admin_complet'];
+    else if (formData.role === 'Radiopharmacien') defaultPermissions = ['lecture', 'gestion_totale'];
+    else if (formData.role === 'Manipulateur' || formData.role === 'Médecin nucléaire') defaultPermissions = ['lecture', 'ajout_dechet'];
+
+    const newUser: User = { 
+      id: String(Date.now()), 
+      name: formData.name, 
+      role: formData.role as any, 
+      email: formData.email,
+      permissions: defaultPermissions,
+      lastLogin: new Date().toISOString()
+    };
+    setUsers([...users, newUser]);
+    setIsAdding(false);
+    setFormData({ name: '', role: 'Manipulateur', email: '' });
+  };
+
+  return (
+    <div className="space-y-6 flex-1 flex flex-col">
+      <div className="flex justify-between items-center bg-[#15171C] p-4 rounded-xl border border-white/5">
+        <div>
+          <h3 className="font-bold text-white uppercase text-sm">Gestion des Utilisateurs & Droits</h3>
+          <p className="text-xs text-slate-500">Personnel accrédité, accès et rôles.</p>
+        </div>
+        <button 
+          onClick={() => setIsAdding(!isAdding)}
+          className="bg-yellow-400 hover:bg-yellow-500 text-black px-4 py-2 font-black text-[10px] uppercase rounded-full transition-colors flex items-center gap-2"
+        >
+          {isAdding ? 'Annuler' : <><Plus className="w-3 h-3"/> Nouveau compte</>}
+        </button>
+      </div>
+
+      {isAdding && (
+        <form onSubmit={handleSubmit} className="bg-[#15171C] p-6 rounded-2xl border border-white/5 animate-in fade-in zoom-in-95">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
+            <FormInput required label="Nom Complet" name="name" value={formData.name} onChange={handleChange} />
+            <FormInput type="email" label="Adresse Email" name="email" value={formData.email} onChange={handleChange} />
+            <FormSelect required label="Rôle / Fonction" name="role" value={formData.role} onChange={handleChange} options={['Administrateur', 'Médecin nucléaire', 'Radiopharmacien', 'Manipulateur', 'Physicien médical', 'Conseiller en radioprotection']} />
+          </div>
+          <div className="flex justify-end gap-3">
+            <button type="button" onClick={() => setIsAdding(false)} className="px-4 py-2 border border-white/10 rounded-full font-black text-[10px] uppercase hover:bg-white/5">Annuler</button>
+            <button type="submit" className="px-4 py-2 bg-yellow-400 text-black rounded-full font-black text-[10px] uppercase hover:bg-yellow-500">Créer l'utilisateur</button>
+          </div>
+        </form>
+      )}
+
+      <div className="bg-[#15171C] rounded-3xl border border-white/5 overflow-hidden shrink-0">
+      <table className="w-full text-left">
+        <thead className="bg-[#0D0E12]">
+          <tr className="text-[10px] uppercase font-black tracking-widest text-slate-500 border-b border-white/5">
+            <th className="px-6 py-4">Nom & Contact</th>
+            <th className="px-6 py-4">Rôle / Fonction</th>
+            <th className="px-6 py-4 hidden md:table-cell">Droits Système</th>
+            <th className="px-6 py-4 hidden md:table-cell">Dernière Connexion</th>
+            <th className="px-6 py-4 text-right">Actions</th>
+          </tr>
+        </thead>
+        <tbody className="divide-y divide-white/5">
+          {users.map((u: any) => (
+            <tr key={u.id} className="hover:bg-white/[0.02]">
+              <td className="px-6 py-4">
+                <div className="font-bold text-white text-sm">{u.name}</div>
+                <div className="text-[10px] text-slate-500">{u.email || '-'}</div>
+              </td>
+              <td className="px-6 py-4">
+                <span className="px-3 py-1 bg-white/5 text-slate-300 text-[10px] font-black uppercase rounded-full border border-white/5">{u.role}</span>
+              </td>
+              <td className="px-6 py-4 hidden md:table-cell">
+                <div className="flex gap-1 flex-wrap">
+                  {u.permissions?.map((p: string, i: number) => (
+                    <span key={i} className="px-2 py-0.5 bg-yellow-400/10 text-yellow-400 text-[9px] font-black uppercase rounded-full border border-yellow-400/20">{p.replace('_', ' ')}</span>
+                  )) || <span className="text-[10px] text-slate-600">-</span>}
+                </div>
+              </td>
+              <td className="px-6 py-4 text-[10px] text-slate-400 font-mono hidden md:table-cell">
+                {u.lastLogin ? new Date(u.lastLogin).toLocaleString('fr-FR') : 'Jamais'}
+              </td>
+              <td className="px-6 py-4 text-right">
+                <button className="text-yellow-400 hover:text-yellow-300 font-black uppercase text-[10px] border border-yellow-400/20 px-3 py-1 rounded-full">Gérer</button>
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+    </div>
+  );
+}
+
+
+function SettingsView() {
+  return (
+    <div className="space-y-6 flex-1 flex flex-col">
+      <div className="flex justify-between items-center bg-[#15171C] p-4 rounded-xl border border-white/5">
+        <div>
+          <h3 className="font-bold text-white uppercase text-sm">Paramètres Système</h3>
+          <p className="text-xs text-slate-500">Configuration générale et sauvegarde des données.</p>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+        <div className="bg-[#15171C] p-6 rounded-2xl border border-white/5">
+          <h4 className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-4">Sauvegarde & Export</h4>
+          <p className="text-sm text-slate-300 mb-6">Téléchargez une copie complète de la base de données (déchets, incidents, registre) au format JSON sécurisé.</p>
+          <button className="px-6 py-3 bg-yellow-400 hover:bg-yellow-500 text-black rounded-lg font-black uppercase text-xs flex items-center justify-center gap-2 transition-colors w-full">
+             Créer une sauvegarde maintenant
+          </button>
+        </div>
+
+        <div className="bg-[#15171C] p-6 rounded-2xl border border-white/5">
+          <h4 className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-4">Configuration Alertes</h4>
+          <div className="space-y-4">
+            <label className="flex items-center gap-3">
+              <input type="checkbox" defaultChecked className="w-4 h-4 rounded border-gray-600 bg-gray-700 text-yellow-400 focus:ring-yellow-400 focus:ring-offset-gray-900" />
+              <span className="text-sm text-white">Activer le rappel avant délai de libération</span>
+            </label>
+            <label className="flex items-center gap-3">
+              <input type="checkbox" defaultChecked className="w-4 h-4 rounded border-gray-600 bg-gray-700 text-yellow-400 focus:ring-yellow-400 focus:ring-offset-gray-900" />
+              <span className="text-sm text-white">Notifier à la direction les incidents (Dépassement de seuil)</span>
+            </label>
+            <label className="flex items-center gap-3">
+              <input type="checkbox" className="w-4 h-4 rounded border-gray-600 bg-gray-700 text-yellow-400 focus:ring-yellow-400 focus:ring-offset-gray-900" />
+              <span className="text-sm text-white">Mode Hiver/Été auto</span>
+            </label>
+          </div>
+        </div>
+
+        <div className="bg-[#15171C] p-6 rounded-2xl border border-white/5">
+          <h4 className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-4">Préférences Affichage</h4>
+          <div className="space-y-4">
+             <FormSelect label="Thème Interface" name="theme" options={['Sombre (Haut contraste)', 'Sombre (Doux)']} value="Sombre (Haut contraste)" onChange={() => {}} />
+             <FormSelect label="Unité de mesure par défaut" name="unit" options={['MBq', 'GBq']} value="MBq" onChange={() => {}} />
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function HelpView() {
+  return (
+    <div className="space-y-6 flex-1 flex flex-col">
+      <div className="flex justify-between items-center bg-[#15171C] p-4 rounded-xl border border-white/5">
+        <div>
+          <h3 className="font-bold text-white uppercase text-sm">Aide & Documentation</h3>
+          <p className="text-xs text-slate-500">Manuel utilisateur de RadWaste Pro.</p>
+        </div>
+      </div>
+
+      <div className="bg-[#15171C] border border-white/5 rounded-2xl p-6">
+        <h3 className="text-xl font-bold text-yellow-400 mb-6">Guide de Démarrage Rapide</h3>
+
+        <div className="space-y-8">
+          <div>
+            <h4 className="text-sm font-bold text-white uppercase tracking-widest mb-2 border-b border-white/10 pb-2">1. Identification & Stockage</h4>
+            <p className="text-sm text-slate-300 leading-relaxed">
+              Pour enregistrer un nouveau déchet dans le local de décroissance, rendez-vous dans le module "Identification & Stockage".
+              Précisez l'isotope, l'activité initiale (en MBq), et le débit de dose observé au contact et à un mètre. Le système calculera automatiquement la date théorique de libération en fonction de la demi-vie du radionucléide.
+            </p>
+          </div>
+
+          <div>
+            <h4 className="text-sm font-bold text-white uppercase tracking-widest mb-2 border-b border-white/10 pb-2">2. Suivi de Décroissance</h4>
+            <p className="text-sm text-slate-300 leading-relaxed">
+              Le tableau de bord de décroissance vous permet d'un coup d'œil de repérer les fûts et objets pouvant être libérés.
+              Les éléments dont la date prévue de libération est atteinte ou dépassée apparaissent en surbrillance avec le statut "Libérable".
+            </p>
+          </div>
+
+          <div>
+            <h4 className="text-sm font-bold text-white uppercase tracking-widest mb-2 border-b border-white/10 pb-2">3. Contrôle de Sortie & Élimination</h4>
+            <p className="text-sm text-slate-300 leading-relaxed">
+              La sortie physique de la zone de stockage contrôlée doit systématiquement être validée dans l'application. 
+              Le contrôleur en charge de cette procédure doit re-mesurer le débit de dose pour s'assurer que ses valeurs sont en dessous des seuils réglementaires avant de valider.
+            </p>
+          </div>
+
+          <div>
+            <h4 className="text-sm font-bold text-white uppercase tracking-widest mb-2 border-b border-white/10 pb-2">4. Support Technique</h4>
+            <p className="text-sm text-slate-300 leading-relaxed mb-4">
+              En cas de perte d'accès ou de comportement inattendu, veuillez contacter l'administrateur système de votre établissement (support@imena-gest.net).
+            </p>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------
+// HELPER UI COMPONENTS
+// ---------------------------
+
+function NavButton({ active, icon, label, onClick }: any) {
+  return (
+    <button
+      onClick={onClick}
+      className={`w-full flex items-center gap-3 px-4 py-2.5 rounded-lg transition-all ${
+        active 
+          ? 'bg-white/5 text-white font-bold border-l-4 border-yellow-400' 
+          : 'text-slate-500 hover:text-white border-l-4 border-transparent font-bold'
+      }`}
+    >
+      <div className={`${active ? 'text-yellow-400' : 'text-slate-500'}`}>
+        {icon}
+      </div>
+      <span className="text-sm">{label}</span>
+      {active && <div className="ml-auto w-1.5 h-1.5 rounded-full bg-yellow-400" />}
+    </button>
+  );
+}
+
+function KPICard({ title, value, icon, valueColor = 'text-white' }: any) {
+  return (
+    <div className="p-6 bg-[#15171C] border border-white/5 rounded-2xl flex flex-col justify-between h-32">
+      <div className="flex justify-between items-start">
+        <div className="text-xs text-slate-500 font-bold uppercase tracking-wider">{title}</div>
+        <div className="text-slate-600">{icon}</div>
+      </div>
+      <div className={`text-5xl lg:text-6xl font-black italic tracking-tighter ${valueColor}`}>{value}</div>
+    </div>
+  );
+}
+
+function FormInput({ label, name, value, onChange, type = 'text', placeholder, required = false, step }: any) {
+  return (
+    <div>
+      <label className="block text-[10px] uppercase font-bold tracking-widest text-slate-500 mb-1">{label}</label>
+      <input type={type} name={name} value={value} onChange={onChange} required={required} placeholder={placeholder} step={step} className="w-full px-3 py-2 bg-[#0D0E12] border border-white/10 rounded-lg focus:outline-none focus:ring-1 focus:ring-yellow-400/50 focus:border-yellow-400/50 text-white text-sm" />
+    </div>
+  );
+}
+
+function FormSelect({ label, name, value, onChange, options, required = false }: any) {
+  return (
+    <div>
+      <label className="block text-[10px] uppercase font-bold tracking-widest text-slate-500 mb-1">{label}</label>
+      <select name={name} value={value} onChange={onChange} required={required} className="w-full px-3 py-2 bg-[#0D0E12] border border-white/10 rounded-lg focus:outline-none focus:ring-1 focus:ring-yellow-400/50 focus:border-yellow-400/50 text-white text-sm">
+        <option value="">Sélectionner...</option>
+        {options.map((o: string) => <option key={o} value={o} className="capitalize">{o}</option>)}
+      </select>
+    </div>
+  );
+}
+
+function ReportCard({ title, description, icon, onClick }: any) {
+  return (
+    <div onClick={onClick} className="bg-[#15171C] p-6 rounded-2xl border border-white/5 hover:border-yellow-400/50 transition cursor-pointer group">
+      <div className="w-12 h-12 rounded-xl bg-yellow-400/10 text-yellow-400 flex items-center justify-center mb-4 group-hover:bg-yellow-400 group-hover:text-black transition-colors border border-yellow-400/20 group-hover:border-yellow-400">
+        {icon}
+      </div>
+      <h3 className="font-bold text-white mb-2">{title}</h3>
+      <p className="text-xs text-slate-400 font-medium leading-relaxed mb-4">{description}</p>
+      <div className="text-yellow-400 font-black uppercase text-[10px] flex items-center tracking-widest group-hover:text-yellow-300">
+        Générer PDF →
+      </div>
+    </div>
+  );
+}
+
