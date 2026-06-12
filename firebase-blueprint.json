@@ -61,6 +61,19 @@
         "hospitalId": { "type": "string" }
       },
       "required": ["id", "name", "role", "email", "hospitalId"]
+    },
+    "Log": {
+      "title": "Log",
+      "description": "Action logs",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "date": { "type": "string" },
+        "userEmail": { "type": "string" },
+        "action": { "type": "string" },
+        "hospitalId": { "type": "string" }
+      },
+      "required": ["date", "userEmail", "action", "hospitalId"]
     }
   },
   "firestore": {
@@ -75,6 +88,10 @@
     "users/{userId}": {
       "schema": { "$ref": "#/entities/User" },
       "description": "User profiles"
+    },
+    "logs/{logId}": {
+      "schema": { "$ref": "#/entities/Log" },
+      "description": "Action logs"
     }
   }
 }

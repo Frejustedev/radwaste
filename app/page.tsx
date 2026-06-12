@@ -24,7 +24,8 @@ import {
   Menu,
   X,
   Sun,
-  Moon
+  Moon,
+  Edit2
 } from 'lucide-react';
 
 const COLORS = ['#FACC15', '#3B82F6', '#A855F7', '#64748B']; // yellow, blue, purple, slate
@@ -34,6 +35,7 @@ export default function NuclearWasteApp() {
   const [wasteItems, setWasteItems] = useState<WasteItem[]>([]);
   const [incidents, setIncidents] = useState<Incident[]>([]);
   const [users, setUsers] = useState<User[]>([]);
+  const [actionLogs, setActionLogs] = useState<any[]>([]);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [showNotifications, setShowNotifications] = useState(false);
   const [theme, setTheme] = useState<'dark' | 'light'>('dark');
@@ -41,6 +43,12 @@ export default function NuclearWasteApp() {
   const [currentUserProfile, setCurrentUserProfile] = useState<User | null>(null);
   const [authLoading, setAuthLoading] = useState(true);
   const [dataLoaded, setDataLoaded] = useState(false);
+  const [tick, setTick] = useState(0);
+
+  useEffect(() => {
+    const interval = setInterval(() => setTick(t => t + 1), 60000); // Update every minute
+    return () => clearInterval(interval);
+  }, []);
   
   const [loginEmail, setLoginEmail] = useState('');
   const [loginPassword, setLoginPassword] = useState('');
@@ -51,6 +59,7 @@ export default function NuclearWasteApp() {
     let unsubWaste: any;
     let unsubIncidents: any;
     let unsubUsers: any;
+    let unsubLogs: any;
 
     import('@/lib/firebase').then(({ auth, db }) => {
       import('firebase/auth').then(({ onAuthStateChanged }) => {
@@ -85,13 +94,13 @@ export default function NuclearWasteApp() {
               unsubWaste = onSnapshot(qWaste, (snapshot) => {
                 const w = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })) as WasteItem[];
                 setWasteItems(w);
-              });
+              }, (error) => console.error("WasteItems snapshot error:", error));
 
               const qInc = query(collection(db, 'incidents'), where('hospitalId', '==', 'default-hospital'));
               unsubIncidents = onSnapshot(qInc, (snapshot) => {
                 const inc = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })) as Incident[];
                 setIncidents(inc);
-              });
+              }, (error) => console.error("Incidents snapshot error:", error));
 
               const qUsers = query(collection(db, 'users'), where('hospitalId', '==', 'default-hospital'));
               unsubUsers = onSnapshot(qUsers, (snapshot) => {
@@ -100,7 +109,13 @@ export default function NuclearWasteApp() {
                 const profile = u.find(p => p.email === user.email);
                 if (profile) setCurrentUserProfile(profile);
                 setDataLoaded(true);
-              });
+              }, (error) => console.error("Users snapshot error:", error));
+
+              const qLogs = query(collection(db, 'logs'), where('hospitalId', '==', 'default-hospital'));
+              unsubLogs = onSnapshot(qLogs, (snapshot) => {
+                const l = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+                setActionLogs(l.sort((a: any, b: any) => new Date(b.date).getTime() - new Date(a.date).getTime()));
+              }, (error) => console.error("Logs snapshot error:", error));
             });
           } else {
             setCurrentUserProfile(null);
@@ -111,6 +126,7 @@ export default function NuclearWasteApp() {
             if (unsubWaste) unsubWaste();
             if (unsubIncidents) unsubIncidents();
             if (unsubUsers) unsubUsers();
+            if (unsubLogs) unsubLogs();
           }
         });
       });
@@ -121,6 +137,7 @@ export default function NuclearWasteApp() {
       if (unsubWaste) unsubWaste();
       if (unsubIncidents) unsubIncidents();
       if (unsubUsers) unsubUsers();
+      if (unsubLogs) unsubLogs();
     };
   }, []);
   
@@ -141,7 +158,20 @@ export default function NuclearWasteApp() {
       }, 0);
 
     return { totalStored, liberable, incidentsCount, totalActivity, nonConformes };
-  }, [wasteItems, incidents]);
+  }, [wasteItems, incidents, tick]);
+
+  const logAction = (actionDesc: string) => {
+    import('@/lib/firebase').then(({ db }) => {
+      import('firebase/firestore').then(({ collection, addDoc }) => {
+        addDoc(collection(db, 'logs'), {
+          hospitalId: 'default-hospital',
+          date: new Date().toISOString(),
+          userEmail: currentUserProfile?.email || 'Système',
+          action: actionDesc
+        }).catch(err => console.error("Error logging action:", err));
+      });
+    });
+  };
 
   const statsData = [
     { name: 'En stockage', value: metrics.totalStored },
@@ -191,7 +221,7 @@ export default function NuclearWasteApp() {
         <div className="w-full max-w-sm bg-[#15171C] p-8 rounded-2xl border border-white/5 flex flex-col items-center">
           <div className="w-16 h-16 bg-yellow-400 rounded-xl flex items-center justify-center text-black font-black italic text-3xl mb-6">☢</div>
           <h1 className="text-2xl font-black uppercase tracking-tighter mb-2">RadWaste <span className="text-yellow-400">Pro</span></h1>
-          <p className="text-xs text-slate-500 uppercase tracking-widest font-bold text-center mb-6">Authentification requise<br/><br/><span className="lowercase normal-case font-normal text-slate-400 mt-2 block">Administrateur: saisissez 'agbotonfrejuste@gmail.com'. Si c'est votre première connexion depuis le passage aux mots de passe, le système tentera de créer le compte avec le mot de passe saisi. Si vous l'aviez créé via Google, un bouton de réinitialisation apparaîtra.</span></p>
+          <p className="text-xs text-slate-500 uppercase tracking-widest font-bold text-center mb-6">Authentification requise</p>
           
           <form className="w-full space-y-4" onSubmit={handleLogin}>
             <div>
@@ -403,25 +433,25 @@ export default function NuclearWasteApp() {
               <DashboardView metrics={metrics} statsData={statsData} wasteItems={wasteItems} setActiveTab={setActiveTab} />
             )}
             {activeTab === 'identification' && (
-              <IdentificationView wasteItems={wasteItems} setWasteItems={setWasteItems} users={users} />
+              <IdentificationView wasteItems={wasteItems} setWasteItems={setWasteItems} users={users} logAction={logAction} />
             )}
             {activeTab === 'decroissance' && (
-              <DecroissanceView wasteItems={wasteItems} setWasteItems={setWasteItems} />
+              <DecroissanceView wasteItems={wasteItems} setWasteItems={setWasteItems} logAction={logAction} />
             )}
             {activeTab === 'sortie' && (
-              <SortieView wasteItems={wasteItems} setWasteItems={setWasteItems} users={users} />
+              <SortieView wasteItems={wasteItems} setWasteItems={setWasteItems} users={users} logAction={logAction} />
             )}
             {activeTab === 'incidents' && (
-              <IncidentsView incidents={incidents} setIncidents={setIncidents} wasteItems={wasteItems} users={users} />
+              <IncidentsView incidents={incidents} setIncidents={setIncidents} wasteItems={wasteItems} users={users} logAction={logAction} />
             )}
             {activeTab === 'reports' && (
               <ReportsView wasteItems={wasteItems} />
             )}
             {activeTab === 'users' && (
-              <UsersView users={users} setUsers={setUsers} />
+              <UsersView users={users} setUsers={setUsers} logAction={logAction} />
             )}
             {activeTab === 'settings' && (
-              <SettingsView />
+              <SettingsView wasteItems={wasteItems} incidents={incidents} users={users} actionLogs={actionLogs} logAction={logAction} />
             )}
             {activeTab === 'help' && (
               <HelpView />
@@ -573,8 +603,9 @@ const getTheoreticalReleaseDate = (w: any) => {
   return releaseDate.toLocaleDateString('fr-FR');
 };
 
-function IdentificationView({ wasteItems, setWasteItems, users }: any) {
+function IdentificationView({ wasteItems, setWasteItems, users, logAction }: any) {
   const [isAdding, setIsAdding] = useState(false);
+  const [editId, setEditId] = useState<string | null>(null);
   const userOptions = users.map((u: any) => u.name);
   const [formData, setFormData] = useState({
     originService: 'labo chaud',
@@ -591,41 +622,92 @@ function IdentificationView({ wasteItems, setWasteItems, users }: any) {
 
   const handleChange = (e: any) => setFormData({ ...formData, [e.target.name]: e.target.value });
 
-  const handleCreateSubmit = async (e: React.FormEvent) => {
+  const resetForm = () => {
+    setFormData({ originService: 'labo chaud', responsibleOperator: userOptions.length > 0 ? userOptions[0] : '', type: 'solide', radionuclide: 'Tc-99m', initialActivity: '', measureDate: new Date().toISOString().slice(0, 16), doseRateContact: '', doseRate1m: '', halfLife: '', regulatoryClearanceLevel: '0.1' });
+    setEditId(null);
+    setIsAdding(false);
+  };
+
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!formData.originService || !formData.type || !formData.radionuclide) return;
 
-    const isotopeCode = formData.radionuclide ? formData.radionuclide.replace('-', '').toUpperCase() : 'UNK';
-    const newItem: Partial<WasteItem> = {
-      id: `WST-${isotopeCode}-${String(wasteItems.length + 1).padStart(3, '0')}`,
-      createdAt: new Date().toISOString(),
-      hospitalId: 'default-hospital',
-      originService: formData.originService,
-      responsibleOperator: formData.responsibleOperator,
-      type: formData.type as any,
-      radionuclide: formData.radionuclide as any,
-      initialActivity: Number(formData.initialActivity) || 0,
-      measureDate: new Date(formData.measureDate).toISOString(),
-      doseRateContact: Number(formData.doseRateContact) || 0,
-      doseRate1m: Number(formData.doseRate1m) || ((Number(formData.doseRateContact) || 0) / 10),
-      halfLife: Number(formData.halfLife) || 6,
-      regulatoryClearanceLevel: Number(formData.regulatoryClearanceLevel) || 0.1,
-      storageEntryDate: new Date().toISOString(),
-      storageResponsible: 'Dr. Martin',
-      expectedDecayDuration: 10,
-      status: 'stockage'
-    };
-
-    setIsAdding(false);
     import('@/lib/firebase').then(({ db }) => {
-      import('firebase/firestore').then(({ doc, setDoc }) => {
-        setDoc(doc(db, 'wasteItems', newItem.id!), newItem).catch(err => {
-          console.error("Error adding document: ", err);
-        });
+      import('firebase/firestore').then(({ doc, setDoc, updateDoc }) => {
+        if (editId) {
+          updateDoc(doc(db, 'wasteItems', editId), {
+            originService: formData.originService,
+            responsibleOperator: formData.responsibleOperator,
+            type: formData.type as any,
+            radionuclide: formData.radionuclide as any,
+            initialActivity: Number(formData.initialActivity) || 0,
+            measureDate: new Date(formData.measureDate).toISOString(),
+            doseRateContact: Number(formData.doseRateContact) || 0,
+            doseRate1m: Number(formData.doseRate1m) || ((Number(formData.doseRateContact) || 0) / 10),
+            halfLife: Number(formData.halfLife) || 6,
+            regulatoryClearanceLevel: Number(formData.regulatoryClearanceLevel) || 0.1,
+          }).then(() => logAction(`Déchet ${editId} mis à jour.`)).catch(err => console.error(err));
+        } else {
+          const isotopeCode = formData.radionuclide ? formData.radionuclide.replace('-', '').toUpperCase() : 'UNK';
+          const newItem: Partial<WasteItem> = {
+            id: `WST-${isotopeCode}-${String(wasteItems.length + 1).padStart(3, '0')}`,
+            createdAt: new Date().toISOString(),
+            hospitalId: 'default-hospital',
+            originService: formData.originService,
+            responsibleOperator: formData.responsibleOperator,
+            type: formData.type as any,
+            radionuclide: formData.radionuclide as any,
+            initialActivity: Number(formData.initialActivity) || 0,
+            measureDate: new Date(formData.measureDate).toISOString(),
+            doseRateContact: Number(formData.doseRateContact) || 0,
+            doseRate1m: Number(formData.doseRate1m) || ((Number(formData.doseRateContact) || 0) / 10),
+            halfLife: Number(formData.halfLife) || 6,
+            regulatoryClearanceLevel: Number(formData.regulatoryClearanceLevel) || 0.1,
+            storageEntryDate: new Date().toISOString(),
+            storageResponsible: 'Dr. Martin',
+            expectedDecayDuration: 10,
+            status: 'stockage'
+          };
+          setDoc(doc(db, 'wasteItems', newItem.id!), newItem).then(() => logAction(`Déchet ${newItem.id} créé.`)).catch(err => console.error(err));
+        }
       });
     });
     
-    setFormData({ originService: 'labo chaud', responsibleOperator: userOptions.length > 0 ? userOptions[0] : '', type: 'solide', radionuclide: 'Tc-99m', initialActivity: '', measureDate: new Date().toISOString().slice(0, 16), doseRateContact: '', doseRate1m: '', halfLife: '', regulatoryClearanceLevel: '0.1' });
+    resetForm();
+  };
+
+  const handleEdit = (w: any) => {
+    setFormData({
+      originService: w.originService || 'labo chaud',
+      responsibleOperator: w.responsibleOperator || '',
+      type: w.type || 'solide',
+      radionuclide: w.radionuclide || 'Tc-99m',
+      initialActivity: String(w.initialActivity),
+      measureDate: w.measureDate ? new Date(w.measureDate).toISOString().slice(0, 16) : new Date().toISOString().slice(0, 16),
+      doseRateContact: String(w.doseRateContact),
+      doseRate1m: String(w.doseRate1m),
+      halfLife: String(w.halfLife),
+      regulatoryClearanceLevel: String(w.regulatoryClearanceLevel)
+    });
+    setEditId(w.id);
+    setIsAdding(true);
+  };
+
+  const handleDelete = (id: string) => {
+    import('@/lib/firebase').then(({ db }) => {
+      import('firebase/firestore').then(({ doc, deleteDoc, collection, query, where, getDocs }) => {
+        deleteDoc(doc(db, 'wasteItems', id))
+          .then(async () => {
+             logAction(`Déchet ${id} supprimé.`);
+             const q = query(collection(db, 'incidents'), where('wasteId', '==', id));
+             const snapshot = await getDocs(q);
+             snapshot.forEach(d => {
+               deleteDoc(doc(db, 'incidents', d.id));
+             });
+          })
+          .catch(err => console.error(err));
+      });
+    });
   };
 
   return (
@@ -636,7 +718,7 @@ function IdentificationView({ wasteItems, setWasteItems, users }: any) {
           <p className="text-xs text-slate-500">Ajout de nouveaux déchets dans le local.</p>
         </div>
         <button 
-          onClick={() => setIsAdding(!isAdding)}
+          onClick={() => { if (isAdding) resetForm(); else setIsAdding(true); }}
           className="bg-yellow-400 hover:bg-yellow-500 text-black px-4 py-2 font-black text-[10px] uppercase rounded-full transition-colors flex items-center gap-2"
         >
           {isAdding ? 'Annuler' : <><Plus className="w-3 h-3"/> Enregistrer un Déchet</>}
@@ -644,8 +726,8 @@ function IdentificationView({ wasteItems, setWasteItems, users }: any) {
       </div>
 
       {isAdding && (
-        <form onSubmit={handleCreateSubmit} className="bg-[#15171C] p-6 rounded-2xl border border-white/5 animate-in fade-in zoom-in-95">
-          <h4 className="text-lg font-black italic uppercase mb-4 text-white">Nouveau Déchet</h4>
+        <form onSubmit={handleSubmit} className="bg-[#15171C] p-6 rounded-2xl border border-white/5 animate-in fade-in zoom-in-95">
+          <h4 className="text-lg font-black italic uppercase mb-4 text-white">{editId ? 'Modifier Déchet' : 'Nouveau Déchet'}</h4>
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 mb-6">
             <FormSelect required label="Service d'origine" name="originService" value={formData.originService} onChange={handleChange} options={['labo chaud', 'salle d’injection', 'salle d’attente chaude', 'salle d’acquisition', 'salle de consultation chaude', 'salle d’interprétation']} />
             <FormSelect required label="Opérateur" name="responsibleOperator" value={formData.responsibleOperator} onChange={handleChange} options={userOptions} />
@@ -659,8 +741,8 @@ function IdentificationView({ wasteItems, setWasteItems, users }: any) {
             <FormInput label="Débit à 1 mètre (µSv/h)" name="doseRate1m" value={formData.doseRate1m} onChange={handleChange} type="number" placeholder="1" />
           </div>
           <div className="flex justify-end gap-3">
-            <button type="button" onClick={() => setIsAdding(false)} className="px-4 py-2 border border-white/10 rounded-full font-black text-[10px] uppercase hover:bg-white/5">Annuler</button>
-            <button type="submit" className="px-4 py-2 bg-yellow-400 text-black rounded-full font-black text-[10px] uppercase hover:bg-yellow-500">Enregistrer</button>
+            <button type="button" onClick={resetForm} className="px-4 py-2 border border-white/10 rounded-full font-black text-[10px] uppercase hover:bg-white/5">Annuler</button>
+            <button type="submit" className="px-4 py-2 bg-yellow-400 text-black rounded-full font-black text-[10px] uppercase hover:bg-yellow-500">{editId ? 'Mettre à jour' : 'Enregistrer'}</button>
           </div>
         </form>
       )}
@@ -675,6 +757,7 @@ function IdentificationView({ wasteItems, setWasteItems, users }: any) {
                 <th className="px-6 py-4">Isotope</th>
                 <th className="px-6 py-4">Mesure Initiale</th>
                 <th className="px-6 py-4">Statut</th>
+                <th className="px-6 py-4 text-right">Actions</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-white/5">
@@ -697,6 +780,16 @@ function IdentificationView({ wasteItems, setWasteItems, users }: any) {
                   <td className="px-6 py-4">
                     <span className="px-3 py-1 bg-blue-500/20 text-blue-400 text-[10px] font-black uppercase rounded-full">En Stockage</span>
                   </td>
+                  <td className="px-6 py-4 text-right">
+                    <div className="flex items-center justify-end gap-2 transition-opacity">
+                      <button onClick={() => handleEdit(w)} className="p-2 bg-blue-500/10 text-blue-400 hover:bg-blue-500/20 rounded-lg transition-colors" title="Modifier">
+                        <Edit2 className="w-4 h-4" />
+                      </button>
+                      <button onClick={() => handleDelete(w.id)} className="p-2 bg-red-500/10 text-red-500 hover:bg-red-500/20 rounded-lg transition-colors" title="Supprimer">
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    </div>
+                  </td>
                 </tr>
               ))}
             </tbody>
@@ -707,7 +800,7 @@ function IdentificationView({ wasteItems, setWasteItems, users }: any) {
   );
 }
 
-function DecroissanceView({ wasteItems, setWasteItems }: any) {
+function DecroissanceView({ wasteItems, setWasteItems, logAction }: any) {
   const [isUpdating, setIsUpdating] = useState(false);
 
   const handleCheckThresholds = () => {
@@ -729,7 +822,10 @@ function DecroissanceView({ wasteItems, setWasteItems }: any) {
           toUpdate.forEach(w => {
             batch.update(doc(db, 'wasteItems', w.id), { status: 'liberable' });
           });
-          batch.commit().then(() => setIsUpdating(false)).catch(e => { console.error(e); setIsUpdating(false); });
+          batch.commit().then(() => {
+            if(logAction) logAction(`${toUpdate.length} déchet(s) passé(s) au statut libérable.`);
+            setIsUpdating(false);
+          }).catch(e => { console.error(e); setIsUpdating(false); });
         });
       });
     } else {
@@ -796,7 +892,7 @@ function DecroissanceView({ wasteItems, setWasteItems }: any) {
   );
 }
 
-function SortieView({ wasteItems, setWasteItems, users }: any) {
+function SortieView({ wasteItems, setWasteItems, users, logAction }: any) {
   const [controlItem, setControlItem] = useState<WasteItem | null>(null);
   const userOptions = users.map((u: any) => u.name);
   const [controlData, setControlData] = useState({
@@ -826,6 +922,7 @@ function SortieView({ wasteItems, setWasteItems, users }: any) {
     import('@/lib/firebase').then(({ db }) => {
       import('firebase/firestore').then(({ doc, updateDoc }) => {
         updateDoc(doc(db, 'wasteItems', controlItem.id), updatedData).then(() => {
+          logAction(`Libération / Élimination du déchet ${controlItem.id} via ${controlData.eliminationMode}`);
           setControlItem(null);
           setControlData({ exitDoseRate: '', exitConformity: 'Oui', exitController: userOptions.length > 0 ? userOptions[0] : '', eliminationMode: 'Filière ANDRA' });
         }).catch(err => {
@@ -911,8 +1008,9 @@ function SortieView({ wasteItems, setWasteItems, users }: any) {
   );
 }
 
-function IncidentsView({ incidents, setIncidents, wasteItems, users }: any) {
+function IncidentsView({ incidents, setIncidents, wasteItems, users, logAction }: any) {
   const [isAdding, setIsAdding] = useState(false);
+  const [editId, setEditId] = useState<string | null>(null);
   const userOptions = users.map((u: any) => u.name);
   const [formData, setFormData] = useState({
     type: 'Déversement accidentel',
@@ -925,30 +1023,63 @@ function IncidentsView({ incidents, setIncidents, wasteItems, users }: any) {
 
   const handleChange = (e: any) => setFormData({ ...formData, [e.target.name]: e.target.value });
 
+  const resetForm = () => {
+    setFormData({type: 'Déversement accidentel', personnelFunction: userOptions.length > 0 ? userOptions[0] : '', doseRateBefore: '', correctiveActions: '', doseRateAfter: '', wasteId: ''});
+    setIsAdding(false);
+    setEditId(null);
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    const newIncident: Partial<Incident> = {
-      id: `INC-2024-${String(incidents.length + 1).padStart(3, '0')}`,
-      date: new Date().toISOString(),
-      hospitalId: 'default-hospital',
-      personnelFunction: formData.personnelFunction,
-      type: formData.type as any,
-      doseRateBefore: Number(formData.doseRateBefore),
-      correctiveActions: formData.correctiveActions,
-      doseRateAfter: Number(formData.doseRateAfter),
-      wasteId: formData.wasteId
-    };
-    setIsAdding(false);
-
     import('@/lib/firebase').then(({ db }) => {
-      import('firebase/firestore').then(({ doc, setDoc }) => {
-        setDoc(doc(db, 'incidents', newIncident.id!), newIncident).catch(err => {
-          console.error("Error adding incident: ", err);
-        });
+      import('firebase/firestore').then(({ doc, setDoc, updateDoc }) => {
+        if (editId) {
+          updateDoc(doc(db, 'incidents', editId), {
+             personnelFunction: formData.personnelFunction,
+             type: formData.type as any,
+             doseRateBefore: Number(formData.doseRateBefore),
+             correctiveActions: formData.correctiveActions,
+             doseRateAfter: Number(formData.doseRateAfter),
+             wasteId: formData.wasteId
+          }).then(() => logAction(`Incident ${editId} mis à jour.`)).catch(err => console.error(err));
+        } else {
+          const newIncident: Partial<Incident> = {
+            id: `INC-2024-${String(incidents.length + 1).padStart(3, '0')}`,
+            date: new Date().toISOString(),
+            hospitalId: 'default-hospital',
+            personnelFunction: formData.personnelFunction,
+            type: formData.type as any,
+            doseRateBefore: Number(formData.doseRateBefore),
+            correctiveActions: formData.correctiveActions,
+            doseRateAfter: Number(formData.doseRateAfter),
+            wasteId: formData.wasteId
+          };
+          setDoc(doc(db, 'incidents', newIncident.id!), newIncident).then(() => logAction(`Incident ${newIncident.id} documenté.`)).catch(err => console.error(err));
+        }
       });
     });
+    resetForm();
+  };
 
-    setFormData({type: 'Déversement accidentel', personnelFunction: userOptions.length > 0 ? userOptions[0] : '', doseRateBefore: '', correctiveActions: '', doseRateAfter: '', wasteId: ''});
+  const handleEdit = (inc: any) => {
+    setFormData({
+      type: inc.type || 'Déversement accidentel',
+      personnelFunction: inc.personnelFunction || '',
+      doseRateBefore: String(inc.doseRateBefore || ''),
+      correctiveActions: inc.correctiveActions || '',
+      doseRateAfter: String(inc.doseRateAfter || ''),
+      wasteId: inc.wasteId || ''
+    });
+    setEditId(inc.id);
+    setIsAdding(true);
+  };
+
+  const handleDelete = (id: string) => {
+    import('@/lib/firebase').then(({ db }) => {
+      import('firebase/firestore').then(({ doc, deleteDoc }) => {
+        deleteDoc(doc(db, 'incidents', id)).then(() => logAction(`Incident ${id} supprimé.`)).catch(err => console.error(err));
+      });
+    });
   };
 
   return (
@@ -958,7 +1089,7 @@ function IncidentsView({ incidents, setIncidents, wasteItems, users }: any) {
          <div className="flex-1">
            <h3 className="text-red-500 font-bold text-sm uppercase">Protocole d&apos;urgence</h3>
            <p className="text-red-200/80 mt-1 text-xs">En cas de déversement ou contamination, isolez le périmètre, utilisez le kit de décontamination et notifiez immédiatement le conseiller en radioprotection.</p>
-           <button onClick={() => setIsAdding(!isAdding)} className="mt-4 bg-red-500 hover:bg-red-600 text-white px-4 py-2 rounded-full font-black text-[10px] uppercase transition shadow-sm">
+           <button onClick={() => { if (isAdding) resetForm(); else setIsAdding(true); }} className="mt-4 bg-red-500 hover:bg-red-600 text-white px-4 py-2 rounded-full font-black text-[10px] uppercase transition shadow-sm">
              {isAdding ? 'Annuler' : 'Déclarer un incident'}
            </button>
          </div>
@@ -966,7 +1097,7 @@ function IncidentsView({ incidents, setIncidents, wasteItems, users }: any) {
 
       {isAdding && (
         <form onSubmit={handleSubmit} className="bg-[#15171C] p-6 rounded-2xl border border-white/5 animate-in fade-in zoom-in-95">
-          <h4 className="text-lg font-black italic uppercase mb-4 text-white">Nouveau Rapport d&apos;Incident</h4>
+          <h4 className="text-lg font-black italic uppercase mb-4 text-white">{editId ? 'Modifier Rapport d\'Incident' : 'Nouveau Rapport d\'Incident'}</h4>
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 mb-6">
             <FormSelect required label="Type d'incident" name="type" value={formData.type} onChange={handleChange} options={['Déversement accidentel', 'Contamination', 'Perte de déchet']} />
             <FormSelect required label="Radioprotection / Personne Impliquée" name="personnelFunction" value={formData.personnelFunction} onChange={handleChange} options={userOptions} />
@@ -979,21 +1110,31 @@ function IncidentsView({ incidents, setIncidents, wasteItems, users }: any) {
             </div>
           </div>
           <div className="flex justify-end gap-3">
-            <button type="button" onClick={() => setIsAdding(false)} className="px-4 py-2 border border-white/10 rounded-full font-black text-[10px] uppercase hover:bg-white/5">Annuler</button>
-            <button type="submit" className="px-4 py-2 bg-red-500 text-white rounded-full font-black text-[10px] uppercase hover:bg-red-600">Enregistrer l&apos;incident</button>
+            <button type="button" onClick={resetForm} className="px-4 py-2 border border-white/10 rounded-full font-black text-[10px] uppercase hover:bg-white/5">Annuler</button>
+            <button type="submit" className="px-4 py-2 bg-red-500 text-white rounded-full font-black text-[10px] uppercase hover:bg-red-600">{editId ? 'Mettre à jour' : 'Enregistrer l\'incident'}</button>
           </div>
         </form>
       )}
 
        <div className="bg-[#15171C] rounded-3xl border border-white/5 overflow-hidden shrink-0">
          {incidents.map((inc: any) => (
-           <div key={inc.id} className="p-6 border-b border-white/5 last:border-0 hover:bg-white/[0.02] transition">
+           <div key={inc.id} className="group p-6 border-b border-white/5 last:border-0 hover:bg-white/[0.02] transition">
              <div className="flex justify-between items-start mb-2">
                <div>
                  <span className="font-mono text-xs text-yellow-400 mr-3">{inc.id}</span>
                  <span className="px-2 py-0.5 bg-red-500/20 text-red-400 text-[10px] font-black uppercase rounded-full">{inc.type}</span>
                </div>
-               <span className="text-xs font-bold text-slate-500">{new Date(inc.date).toLocaleDateString('fr-FR')}</span>
+               <div className="flex items-center gap-4">
+                 <div className="flex items-center gap-2 transition-opacity">
+                   <button onClick={() => handleEdit(inc)} className="p-1 text-slate-400 hover:text-white transition-colors" title="Modifier">
+                     <Edit2 className="w-4 h-4" />
+                   </button>
+                   <button onClick={() => handleDelete(inc.id)} className="p-1 text-red-500 hover:text-red-400 transition-colors" title="Supprimer">
+                     <Trash2 className="w-4 h-4" />
+                   </button>
+                 </div>
+                 <span className="text-xs font-bold text-slate-500">{new Date(inc.date).toLocaleDateString('fr-FR')}</span>
+               </div>
              </div>
              <p className="text-xs text-slate-400 mb-4"><span className="font-bold text-slate-300">Implication:</span> {inc.personnelFunction} | <span className="font-bold text-slate-300">Déchet:</span> <span className="font-mono text-white">{inc.wasteId || 'N/A'}</span></p>
              <div className="bg-[#0D0E12] rounded-xl p-4 grid grid-cols-1 md:grid-cols-3 gap-4 text-xs mt-3 border border-white/5">
@@ -1162,47 +1303,90 @@ function PrintMensuel({ wasteItems }: any) {
   );
 }
 
-function UsersView({ users, setUsers }: any) {
+function UsersView({ users, setUsers, logAction }: any) {
   const [isAdding, setIsAdding] = useState(false);
+  const [editId, setEditId] = useState<string | null>(null);
   const [formData, setFormData] = useState({ name: '', role: 'Manipulateur', email: '', password: '' });
   const [errorMsg, setErrorMsg] = useState('');
 
   const handleChange = (e: any) => setFormData({ ...formData, [e.target.name]: e.target.value });
 
+  const resetForm = () => {
+    setFormData({ name: '', role: 'Manipulateur', email: '', password: '' });
+    setErrorMsg('');
+    setIsAdding(false);
+    setEditId(null);
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setErrorMsg('');
+    
+    let defaultPermissions = ['lecture'];
+    if (formData.role === 'Administrateur') defaultPermissions = ['admin_complet'];
+    else if (formData.role === 'Radiopharmacien') defaultPermissions = ['lecture', 'gestion_totale'];
+    else if (formData.role === 'Manipulateur' || formData.role === 'Médecin nucléaire') defaultPermissions = ['lecture', 'ajout_dechet'];
+
     try {
-      const { secondaryAuth, db } = await import('@/lib/firebase');
-      const { createUserWithEmailAndPassword } = await import('firebase/auth');
-      const { doc, setDoc } = await import('firebase/firestore');
+      const { db } = await import('@/lib/firebase');
+      const { doc, setDoc, updateDoc } = await import('firebase/firestore');
 
-      // Create user using secondary instance to preserve admin session
-      const userCredential = await createUserWithEmailAndPassword(secondaryAuth, formData.email, formData.password);
-      const uid = userCredential.user.uid;
+      if (editId) {
+        await updateDoc(doc(db, 'users', editId), {
+          name: formData.name, 
+          role: formData.role as any, 
+          email: formData.email,
+          permissions: defaultPermissions
+        });
+        logAction(`Utilisateur ${formData.name} mis à jour.`);
+      } else {
+        const { secondaryAuth } = await import('@/lib/firebase');
+        const { createUserWithEmailAndPassword } = await import('firebase/auth');
+        
+        // Create user using secondary instance to preserve admin session
+        const userCredential = await createUserWithEmailAndPassword(secondaryAuth, formData.email, formData.password);
+        const uid = userCredential.user.uid;
 
-      let defaultPermissions = ['lecture'];
-      if (formData.role === 'Administrateur') defaultPermissions = ['admin_complet'];
-      else if (formData.role === 'Radiopharmacien') defaultPermissions = ['lecture', 'gestion_totale'];
-      else if (formData.role === 'Manipulateur' || formData.role === 'Médecin nucléaire') defaultPermissions = ['lecture', 'ajout_dechet'];
+        const newUser: Partial<User> = { 
+          id: uid, 
+          hospitalId: 'default-hospital',
+          name: formData.name, 
+          role: formData.role as any, 
+          email: formData.email,
+          permissions: defaultPermissions,
+          lastLogin: new Date().toISOString()
+        };
 
-      const newUser: Partial<User> = { 
-        id: uid, 
-        hospitalId: 'default-hospital',
-        name: formData.name, 
-        role: formData.role as any, 
-        email: formData.email,
-        permissions: defaultPermissions,
-        lastLogin: new Date().toISOString()
-      };
-
-      await setDoc(doc(db, 'users', uid), newUser);
-      
-      setIsAdding(false);
-      setFormData({ name: '', role: 'Manipulateur', email: '', password: '' });
+        await setDoc(doc(db, 'users', uid), newUser);
+        logAction(`Utilisateur ${formData.name} créé.`);
+      }
+      resetForm();
     } catch (err: any) {
-      console.error("Error adding user: ", err);
+      console.error("Error saving user: ", err);
       setErrorMsg(err.message || 'Error occurred');
+    }
+  };
+
+  const handleEdit = (u: any) => {
+    setFormData({
+      name: u.name || '',
+      role: u.role || 'Manipulateur',
+      email: u.email || '',
+      password: '' // cannot edit password this easily without admin SDK
+    });
+    setEditId(u.id);
+    setIsAdding(true);
+  };
+
+  const handleDelete = async (id: string) => {
+    if (id === 'agbotonfrejuste@gmail.com') return; // protect master admin if needed, better let's just delete the user doc
+    try {
+      const { db } = await import('@/lib/firebase');
+      const { doc, deleteDoc } = await import('firebase/firestore');
+      await deleteDoc(doc(db, 'users', id));
+      logAction(`Utilisateur ${id} supprimé.`);
+    } catch (err) {
+      console.error('Error deleting user:', err);
     }
   };
 
@@ -1214,7 +1398,7 @@ function UsersView({ users, setUsers }: any) {
           <p className="text-xs text-slate-500">Personnel accrédité, accès et rôles.</p>
         </div>
         <button 
-          onClick={() => setIsAdding(!isAdding)}
+          onClick={() => { if (isAdding) resetForm(); else setIsAdding(true); }}
           className="bg-yellow-400 hover:bg-yellow-500 text-black px-4 py-2 font-black text-[10px] uppercase rounded-full transition-colors flex items-center gap-2"
         >
           {isAdding ? 'Annuler' : <><Plus className="w-3 h-3"/> Nouveau compte</>}
@@ -1223,16 +1407,17 @@ function UsersView({ users, setUsers }: any) {
 
       {isAdding && (
         <form onSubmit={handleSubmit} className="bg-[#15171C] p-6 rounded-2xl border border-white/5 animate-in fade-in zoom-in-95">
+          <h4 className="text-lg font-black italic uppercase mb-4 text-white">{editId ? 'Modifier l\'utilisateur' : 'Nouvel utilisateur'}</h4>
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-4">
             <FormInput required label="Nom Complet" name="name" value={formData.name} onChange={handleChange} />
             <FormInput type="email" required label="Adresse Email" name="email" value={formData.email} onChange={handleChange} />
-            <FormInput type="password" required label="Mot de passe" name="password" value={formData.password} onChange={handleChange} placeholder="Minimum 6 caractères" />
+            {!editId && <FormInput type="password" required label="Mot de passe" name="password" value={formData.password} onChange={handleChange} placeholder="Minimum 6 caractères" />}
             <FormSelect required label="Rôle / Fonction" name="role" value={formData.role} onChange={handleChange} options={['Administrateur', 'Médecin nucléaire', 'Radiopharmacien', 'Manipulateur', 'Physicien médical', 'Conseiller en radioprotection']} />
           </div>
           {errorMsg && <p className="text-red-500 text-xs mb-4">{errorMsg}</p>}
           <div className="flex justify-end gap-3">
-            <button type="button" onClick={() => setIsAdding(false)} className="px-4 py-2 border border-white/10 rounded-full font-black text-[10px] uppercase hover:bg-white/5">Annuler</button>
-            <button type="submit" className="px-4 py-2 bg-yellow-400 text-black rounded-full font-black text-[10px] uppercase hover:bg-yellow-500">Créer l&apos;utilisateur</button>
+            <button type="button" onClick={resetForm} className="px-4 py-2 border border-white/10 rounded-full font-black text-[10px] uppercase hover:bg-white/5">Annuler</button>
+            <button type="submit" className="px-4 py-2 bg-yellow-400 text-black rounded-full font-black text-[10px] uppercase hover:bg-yellow-500">{editId ? 'Mettre à jour' : 'Créer l\'utilisateur'}</button>
           </div>
         </form>
       )}
@@ -1250,7 +1435,7 @@ function UsersView({ users, setUsers }: any) {
         </thead>
         <tbody className="divide-y divide-white/5">
           {users.map((u: any) => (
-            <tr key={u.id} className="hover:bg-white/[0.02]">
+            <tr key={u.id} className="group hover:bg-white/[0.02]">
               <td className="px-6 py-4">
                 <div className="font-bold text-white text-sm">{u.name}</div>
                 <div className="text-[10px] text-slate-500">{u.email || '-'}</div>
@@ -1269,7 +1454,16 @@ function UsersView({ users, setUsers }: any) {
                 {u.lastLogin ? new Date(u.lastLogin).toLocaleString('fr-FR') : 'Jamais'}
               </td>
               <td className="px-6 py-4 text-right">
-                <button className="text-yellow-400 hover:text-yellow-300 font-black uppercase text-[10px] border border-yellow-400/20 px-3 py-1 rounded-full">Gérer</button>
+                 <div className="flex items-center justify-end gap-2 transition-opacity">
+                   <button onClick={() => handleEdit(u)} className="p-2 bg-blue-500/10 text-blue-400 hover:bg-blue-500/20 rounded-lg transition-colors" title="Modifier">
+                     <Edit2 className="w-4 h-4" />
+                   </button>
+                   {u.email !== 'agbotonfrejuste@gmail.com' && (
+                     <button onClick={() => handleDelete(u.id)} className="p-2 bg-red-500/10 text-red-500 hover:bg-red-500/20 rounded-lg transition-colors" title="Supprimer">
+                       <Trash2 className="w-4 h-4" />
+                     </button>
+                   )}
+                 </div>
               </td>
             </tr>
           ))}
@@ -1281,7 +1475,58 @@ function UsersView({ users, setUsers }: any) {
 }
 
 
-function SettingsView() {
+function SettingsView({ wasteItems, incidents, users, actionLogs, logAction }: any) {
+  const [restoreStatus, setRestoreStatus] = useState<string | null>(null);
+
+  const handleBackup = () => {
+    const data = {
+      wasteItems,
+      incidents,
+      users,
+      actionLogs
+    };
+    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `backup_radwaste_${new Date().toISOString().slice(0,10)}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+    if(logAction) logAction('Sauvegarde système téléchargée.');
+  };
+
+  const handleRestore = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setRestoreStatus("Restauration en cours...");
+
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      try {
+        const data = JSON.parse(event.target?.result as string);
+        if (data.wasteItems && data.incidents && data.users) {
+           import('@/lib/firebase').then(({ db }) => {
+             import('firebase/firestore').then(async ({ doc, setDoc, collection, getDocs, deleteDoc }) => {
+               // Optional: wipe old data first, or just overwrite since IDs are standard
+               // For safety we'll just overwrite.
+               for (const item of data.wasteItems) await setDoc(doc(db, 'wasteItems', item.id), item);
+               for (const inc of data.incidents) await setDoc(doc(db, 'incidents', inc.id), inc);
+               for (const u of data.users) await setDoc(doc(db, 'users', u.id), u);
+               if(logAction) logAction(`Restauration système effectuée (fichier: ${file.name}).`);
+               setRestoreStatus("Restauration réussie !");
+             });
+           });
+        } else {
+           setRestoreStatus("Erreur: Format de fichier invalide.");
+        }
+      } catch (err) {
+        setRestoreStatus("Erreur lors de la lecture du fichier.");
+      }
+    };
+    reader.readAsText(file);
+  };
+
   return (
     <div className="space-y-6 flex-1 flex flex-col">
       <div className="flex justify-between items-center bg-[#15171C] p-4 rounded-xl border border-white/5">
@@ -1291,38 +1536,50 @@ function SettingsView() {
         </div>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-        <div className="bg-[#15171C] p-6 rounded-2xl border border-white/5">
-          <h4 className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-4">Sauvegarde & Export</h4>
-          <p className="text-sm text-slate-300 mb-6">Téléchargez une copie complète de la base de données (déchets, incidents, registre) au format JSON sécurisé.</p>
-          <button className="px-6 py-3 bg-yellow-400 hover:bg-yellow-500 text-black rounded-lg font-black uppercase text-xs flex items-center justify-center gap-2 transition-colors w-full">
-             Créer une sauvegarde maintenant
-          </button>
-        </div>
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <div className="space-y-6">
+          <div className="bg-[#15171C] p-6 rounded-2xl border border-white/5">
+            <h4 className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-4">Sauvegarde & Export</h4>
+            <p className="text-sm text-slate-300 mb-6">Téléchargez une copie complète de la base de données (déchets, incidents, registre) au format JSON sécurisé.</p>
+            <button onClick={handleBackup} className="px-6 py-3 bg-yellow-400 hover:bg-yellow-500 text-black rounded-lg font-black uppercase text-xs flex items-center justify-center gap-2 transition-colors w-full mb-4">
+               Créer une sauvegarde maintenant
+            </button>
+            <div className="relative">
+              <input type="file" accept=".json" onChange={handleRestore} className="absolute inset-0 w-full h-full opacity-0 cursor-pointer" />
+              <button className="px-6 py-3 bg-blue-500/10 hover:bg-blue-500/20 text-blue-400 border border-blue-500/20 rounded-lg font-black uppercase text-xs flex items-center justify-center gap-2 transition-colors w-full">
+                 Rétablir une sauvegarde
+              </button>
+            </div>
+            {restoreStatus && <p className="text-xs text-yellow-400 mt-3 font-bold">{restoreStatus}</p>}
+          </div>
 
-        <div className="bg-[#15171C] p-6 rounded-2xl border border-white/5">
-          <h4 className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-4">Configuration Alertes</h4>
-          <div className="space-y-4">
-            <label className="flex items-center gap-3">
-              <input type="checkbox" defaultChecked className="w-4 h-4 rounded border-gray-600 bg-gray-700 text-yellow-400 focus:ring-yellow-400 focus:ring-offset-gray-900" />
-              <span className="text-sm text-white">Activer le rappel avant délai de libération</span>
-            </label>
-            <label className="flex items-center gap-3">
-              <input type="checkbox" defaultChecked className="w-4 h-4 rounded border-gray-600 bg-gray-700 text-yellow-400 focus:ring-yellow-400 focus:ring-offset-gray-900" />
-              <span className="text-sm text-white">Notifier à la direction les incidents (Dépassement de seuil)</span>
-            </label>
-            <label className="flex items-center gap-3">
-              <input type="checkbox" className="w-4 h-4 rounded border-gray-600 bg-gray-700 text-yellow-400 focus:ring-yellow-400 focus:ring-offset-gray-900" />
-              <span className="text-sm text-white">Mode Hiver/Été auto</span>
-            </label>
+          <div className="bg-[#15171C] p-6 rounded-2xl border border-white/5">
+            <h4 className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-4">Préférences Affichage</h4>
+            <div className="space-y-4">
+               <FormSelect label="Thème Interface" name="theme" options={['Sombre (Haut contraste)', 'Sombre (Doux)']} value="Sombre (Haut contraste)" onChange={() => {}} />
+               <FormSelect label="Unité de mesure par défaut" name="unit" options={['MBq', 'GBq']} value="MBq" onChange={() => {}} />
+            </div>
           </div>
         </div>
 
-        <div className="bg-[#15171C] p-6 rounded-2xl border border-white/5">
-          <h4 className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-4">Préférences Affichage</h4>
-          <div className="space-y-4">
-             <FormSelect label="Thème Interface" name="theme" options={['Sombre (Haut contraste)', 'Sombre (Doux)']} value="Sombre (Haut contraste)" onChange={() => {}} />
-             <FormSelect label="Unité de mesure par défaut" name="unit" options={['MBq', 'GBq']} value="MBq" onChange={() => {}} />
+        <div className="bg-[#15171C] p-6 rounded-2xl border border-white/5 flex flex-col">
+          <h4 className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-4 flex-shrink-0">Journal d&apos;actions (Logs)</h4>
+          <div className="flex-1 overflow-y-auto max-h-[400px] border border-white/5 rounded-lg bg-[#0F1115] p-4 font-mono text-[10px]">
+            {actionLogs && actionLogs.length > 0 ? (
+              <div className="space-y-3">
+                {actionLogs.map((log: any) => (
+                  <div key={log.id} className="pb-3 border-b border-white/5 last:border-0 last:pb-0">
+                    <span className="text-slate-500">{new Date(log.date).toLocaleString('fr-FR')}</span>
+                    <span className="text-yellow-400 mx-2">|</span>
+                    <span className="text-purple-400">{log.userEmail}</span>
+                    <span className="text-yellow-400 mx-2">|</span>
+                    <span className="text-white">{log.action}</span>
+                  </div>
+                ))}
+              </div>
+            ) : (
+                <div className="text-slate-500 mb-2">Aucun log disponible...</div>
+            )}
           </div>
         </div>
       </div>
