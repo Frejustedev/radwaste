@@ -1,0 +1,80 @@
+{
+  "entities": {
+    "WasteItem": {
+      "title": "WasteItem",
+      "description": "Radioactive waste item",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "createdAt": { "type": "string" },
+        "originService": { "type": "string" },
+        "responsibleOperator": { "type": "string" },
+        "type": { "type": "string" },
+        "radionuclide": { "type": "string" },
+        "initialActivity": { "type": "number" },
+        "measureDate": { "type": "string" },
+        "doseRateContact": { "type": "number" },
+        "doseRate1m": { "type": "number" },
+        "halfLife": { "type": "number" },
+        "regulatoryClearanceLevel": { "type": "number" },
+        "storageEntryDate": { "type": "string" },
+        "storageResponsible": { "type": "string" },
+        "expectedDecayDuration": { "type": "number" },
+        "exitControlDate": { "type": "string" },
+        "exitDoseRate": { "type": "number" },
+        "exitConformity": { "type": "boolean" },
+        "exitController": { "type": "string" },
+        "eliminationDate": { "type": "string" },
+        "eliminationMode": { "type": "string" },
+        "eliminationResponsible": { "type": "string" },
+        "status": { "type": "string" },
+        "hospitalId": { "type": "string" }
+      },
+      "required": ["id", "createdAt", "type", "radionuclide", "status", "hospitalId"]
+    },
+    "Incident": {
+      "title": "Incident",
+      "description": "Nuclear incident",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "date": { "type": "string" },
+        "personnelFunction": { "type": "string" },
+        "type": { "type": "string" },
+        "doseRateBefore": { "type": "number" },
+        "correctiveActions": { "type": "string" },
+        "doseRateAfter": { "type": "number" },
+        "wasteId": { "type": "string" },
+        "hospitalId": { "type": "string" }
+      },
+      "required": ["id", "date", "type", "doseRateBefore", "doseRateAfter", "hospitalId"]
+    },
+    "User": {
+      "title": "User",
+      "description": "Hospital personnel",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "role": { "type": "string" },
+        "email": { "type": "string" },
+        "hospitalId": { "type": "string" }
+      },
+      "required": ["id", "name", "role", "email", "hospitalId"]
+    }
+  },
+  "firestore": {
+    "wasteItems/{wasteItemId}": {
+      "schema": { "$ref": "#/entities/WasteItem" },
+      "description": "A radioactive waste record"
+    },
+    "incidents/{incidentId}": {
+      "schema": { "$ref": "#/entities/Incident" },
+      "description": "An incident log"
+    },
+    "users/{userId}": {
+      "schema": { "$ref": "#/entities/User" },
+      "description": "User profiles"
+    }
+  }
+}

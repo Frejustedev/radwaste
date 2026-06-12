@@ -1,0 +1,73 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() > 0 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function isValidWasteItem(data) {
+      return data.keys().hasAll(['id', 'createdAt', 'type', 'radionuclide', 'status', 'hospitalId']) &&
+             data.id is string && data.id.size() <= 128 &&
+             data.createdAt is string && data.createdAt.size() <= 64 &&
+             data.type is string && data.type.size() <= 64 &&
+             data.radionuclide is string && data.radionuclide.size() <= 64 &&
+             data.status is string && data.status.size() <= 64 &&
+             data.hospitalId is string && data.hospitalId.size() <= 128;
+    }
+
+    function isValidIncident(data) {
+      return data.keys().hasAll(['id', 'date', 'type', 'doseRateBefore', 'doseRateAfter', 'hospitalId']) &&
+             data.id is string && data.id.size() <= 128 &&
+             data.date is string && data.date.size() <= 64 &&
+             data.type is string && data.type.size() <= 128 &&
+             data.doseRateBefore is number &&
+             data.doseRateAfter is number &&
+             data.hospitalId is string && data.hospitalId.size() <= 128;
+    }
+
+    function isValidUser(data) {
+      return data.keys().hasAll(['id', 'name', 'role', 'hospitalId']) &&
+             data.id is string && data.id.size() <= 128 &&
+             data.name is string && data.name.size() <= 128 &&
+             data.role is string && data.role.size() <= 64 &&
+             data.hospitalId is string && data.hospitalId.size() <= 128;
+    }
+
+    match /wasteItems/{wasteItemId} {
+      allow read: if isSignedIn() && existing().hospitalId == "default-hospital";
+      allow create: if isSignedIn() && isValidId(wasteItemId) && isValidWasteItem(incoming()) && incoming().hospitalId == "default-hospital";
+      allow update: if isSignedIn() && isValidWasteItem(incoming()) && incoming().hospitalId == existing().hospitalId;
+      allow list: if isSignedIn() && resource.data.hospitalId == "default-hospital";
+    }
+
+    match /incidents/{incidentId} {
+      allow read: if isSignedIn() && existing().hospitalId == "default-hospital";
+      allow create: if isSignedIn() && isValidId(incidentId) && isValidIncident(incoming()) && incoming().hospitalId == "default-hospital";
+      allow update: if isSignedIn() && isValidIncident(incoming()) && incoming().hospitalId == existing().hospitalId;
+      allow list: if isSignedIn() && resource.data.hospitalId == "default-hospital";
+    }
+
+    match /users/{userId} {
+      allow read: if isSignedIn() && existing().hospitalId == "default-hospital";
+      allow create: if isSignedIn() && isValidId(userId) && isValidUser(incoming()) && incoming().hospitalId == "default-hospital";
+      allow update: if isSignedIn() && isValidUser(incoming()) && incoming().hospitalId == existing().hospitalId && userId == request.auth.uid;
+      allow list: if isSignedIn() && resource.data.hospitalId == "default-hospital";
+    }
+  }
+}

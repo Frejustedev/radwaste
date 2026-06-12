@@ -8,6 +8,7 @@ export interface WasteItem {
   originService: string; // Service d'origine
   responsibleOperator: string; // Opérateur responsable
   type: WasteType;
+  hospitalId?: string;
 
   // Radioactivité
   radionuclide: Radionuclide;
@@ -46,6 +47,7 @@ export interface Incident {
   correctiveActions: string;
   doseRateAfter: number;
   wasteId?: string;
+  hospitalId?: string;
 }
 
 export type UserRole = 'Administrateur' | 'Médecin nucléaire' | 'Radiopharmacien' | 'Manipulateur' | 'Physicien médical' | 'Conseiller en radioprotection';
@@ -57,4 +59,5 @@ export interface User {
   email?: string;
   permissions?: string[];
   lastLogin?: string;
+  hospitalId?: string;
 }

@@ -31,13 +31,66 @@ const COLORS = ['#FACC15', '#3B82F6', '#A855F7', '#64748B']; // yellow, blue, pu
 
 export default function NuclearWasteApp() {
   const [activeTab, setActiveTab] = useState<'dashboard' | 'identification' | 'decroissance' | 'sortie' | 'incidents' | 'reports' | 'users' | 'settings' | 'help'>('dashboard');
-  const [wasteItems, setWasteItems] = useState<WasteItem[]>(mockWaste);
-  const [incidents, setIncidents] = useState<Incident[]>(mockIncidents);
-  const [users, setUsers] = useState<User[]>(mockUsers);
-  const [logoutMode, setLogoutMode] = useState(false);
+  const [wasteItems, setWasteItems] = useState<WasteItem[]>([]);
+  const [incidents, setIncidents] = useState<Incident[]>([]);
+  const [users, setUsers] = useState<User[]>([]);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [showNotifications, setShowNotifications] = useState(false);
   const [theme, setTheme] = useState<'dark' | 'light'>('dark');
+  const [authUser, setAuthUser] = useState<any>(null);
+  const [authLoading, setAuthLoading] = useState(true);
+
+  useEffect(() => {
+    let unsubscribeAuth: any;
+    let unsubWaste: any;
+    let unsubIncidents: any;
+    let unsubUsers: any;
+
+    import('@/lib/firebase').then(({ auth, db }) => {
+      import('firebase/auth').then(({ onAuthStateChanged }) => {
+        unsubscribeAuth = onAuthStateChanged(auth, (user) => {
+          setAuthUser(user);
+          setAuthLoading(false);
+          
+          if (user) {
+            import('firebase/firestore').then(({ collection, query, where, onSnapshot }) => {
+              const qWaste = query(collection(db, 'wasteItems'), where('hospitalId', '==', 'default-hospital'));
+              unsubWaste = onSnapshot(qWaste, (snapshot) => {
+                const w = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })) as WasteItem[];
+                setWasteItems(w);
+              });
+
+              const qInc = query(collection(db, 'incidents'), where('hospitalId', '==', 'default-hospital'));
+              unsubIncidents = onSnapshot(qInc, (snapshot) => {
+                const inc = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })) as Incident[];
+                setIncidents(inc);
+              });
+
+              const qUsers = query(collection(db, 'users'), where('hospitalId', '==', 'default-hospital'));
+              unsubUsers = onSnapshot(qUsers, (snapshot) => {
+                const u = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })) as User[];
+                setUsers(u);
+              });
+            });
+          } else {
+            setWasteItems([]);
+            setIncidents([]);
+            setUsers([]);
+            if (unsubWaste) unsubWaste();
+            if (unsubIncidents) unsubIncidents();
+            if (unsubUsers) unsubUsers();
+          }
+        });
+      });
+    });
+
+    return () => {
+      if (unsubscribeAuth) unsubscribeAuth();
+      if (unsubWaste) unsubWaste();
+      if (unsubIncidents) unsubIncidents();
+      if (unsubUsers) unsubUsers();
+    };
+  }, []);
   
   // Calculate specific metrics for dashboard
   const metrics = useMemo(() => {
@@ -64,7 +117,11 @@ export default function NuclearWasteApp() {
     { name: 'Éliminés', value: wasteItems.filter(w => w.status === 'elimine').length },
   ];
 
-  if (logoutMode) {
+  if (authLoading) {
+    return <div className="h-screen bg-[#0A0B0D] flex items-center justify-center"><div className="animate-spin text-yellow-400">☢</div></div>;
+  }
+
+  if (!authUser) {
     return (
       <div className="h-screen bg-[#0A0B0D] text-[#E0E2E5] flex items-center justify-center font-sans overflow-hidden select-none">
         <div className="w-full max-w-sm bg-[#15171C] p-8 rounded-2xl border border-white/5 flex flex-col items-center">
@@ -72,19 +129,15 @@ export default function NuclearWasteApp() {
           <h1 className="text-2xl font-black uppercase tracking-tighter mb-2">RadWaste <span className="text-yellow-400">Pro</span></h1>
           <p className="text-xs text-slate-500 uppercase tracking-widest font-bold mb-8">Authentification requise</p>
           
-          <div className="w-full space-y-4 mb-8">
-            <div>
-              <label className="block text-[10px] uppercase font-bold tracking-widest text-slate-500 mb-1">Identifiant</label>
-              <input type="text" placeholder="Entrez votre identifiant" className="w-full px-3 py-2 bg-[#0D0E12] border border-white/10 rounded-lg focus:outline-none focus:ring-1 focus:ring-yellow-400/50 focus:border-yellow-400/50 text-white text-sm" />
-            </div>
-            <div>
-              <label className="block text-[10px] uppercase font-bold tracking-widest text-slate-500 mb-1">Mot de passe</label>
-              <input type="password" placeholder="••••••••" className="w-full px-3 py-2 bg-[#0D0E12] border border-white/10 rounded-lg focus:outline-none focus:ring-1 focus:ring-yellow-400/50 focus:border-yellow-400/50 text-white text-sm" />
-            </div>
-          </div>
-          
-          <button onClick={() => setLogoutMode(false)} className="w-full py-4 bg-yellow-400 hover:bg-yellow-500 text-black rounded-lg font-black uppercase text-xs transition-colors">
-            Se connecter
+          <button 
+            onClick={() => {
+              import('../lib/firebase').then(({ loginWithGoogle }) => {
+                loginWithGoogle();
+              });
+            }} 
+            className="w-full py-4 bg-yellow-400 hover:bg-yellow-500 text-black rounded-lg font-black uppercase text-xs transition-colors"
+          >
+            Se connecter avec Google
           </button>
         </div>
       </div>
@@ -182,7 +235,11 @@ export default function NuclearWasteApp() {
             </div>
             <NavButton active={activeTab === 'settings'} onClick={() => { setActiveTab('settings'); setIsMobileMenuOpen(false); }} icon={<Settings className="w-5 h-5"/>} label="Paramètres" />
             <NavButton active={activeTab === 'help'} onClick={() => { setActiveTab('help'); setIsMobileMenuOpen(false); }} icon={<HelpCircle className="w-5 h-5"/>} label="Aide & Documentation" />
-            <button onClick={() => setLogoutMode(true)} className="w-full flex items-center gap-4 px-4 py-2 mt-2 rounded-xl text-red-400 hover:bg-white/5 hover:text-red-300 transition-all font-black text-xs group cursor-pointer border border-transparent">
+            <button onClick={() => {
+              import('../lib/firebase').then(({ logout }) => {
+                logout();
+              });
+            }} className="w-full flex items-center gap-4 px-4 py-2 mt-2 rounded-xl text-red-400 hover:bg-white/5 hover:text-red-300 transition-all font-black text-xs group cursor-pointer border border-transparent">
               <LogOut className="w-5 h-5" />
               <span>Déconnexion</span>
             </button>
@@ -404,14 +461,15 @@ function IdentificationView({ wasteItems, setWasteItems, users }: any) {
 
   const handleChange = (e: any) => setFormData({ ...formData, [e.target.name]: e.target.value });
 
-  const handleCreateSubmit = (e: React.FormEvent) => {
+  const handleCreateSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!formData.originService || !formData.type || !formData.radionuclide) return;
 
     const isotopeCode = formData.radionuclide ? formData.radionuclide.replace('-', '').toUpperCase() : 'UNK';
-    const newItem: WasteItem = {
+    const newItem: Partial<WasteItem> = {
       id: `WST-${isotopeCode}-${String(wasteItems.length + 1).padStart(3, '0')}`,
       createdAt: new Date().toISOString(),
+      hospitalId: 'default-hospital',
       originService: formData.originService,
       responsibleOperator: formData.responsibleOperator,
       type: formData.type as any,
@@ -428,8 +486,15 @@ function IdentificationView({ wasteItems, setWasteItems, users }: any) {
       status: 'stockage'
     };
 
-    setWasteItems([newItem, ...wasteItems]);
     setIsAdding(false);
+    import('@/lib/firebase').then(({ db }) => {
+      import('firebase/firestore').then(({ doc, setDoc }) => {
+        setDoc(doc(db, 'wasteItems', newItem.id!), newItem).catch(err => {
+          console.error("Error adding document: ", err);
+        });
+      });
+    });
+    
     setFormData({ originService: 'labo chaud', responsibleOperator: userOptions.length > 0 ? userOptions[0] : '', type: 'solide', radionuclide: 'Tc-99m', initialActivity: '', measureDate: new Date().toISOString().slice(0, 16), doseRateContact: '', doseRate1m: '', halfLife: '', regulatoryClearanceLevel: '0.1' });
   };
 
@@ -517,19 +582,29 @@ function DecroissanceView({ wasteItems, setWasteItems }: any) {
 
   const handleCheckThresholds = () => {
     setIsUpdating(true);
-    setTimeout(() => {
-      const updated = wasteItems.map((w: any) => {
-        if (w.status === 'stockage') {
-          const residual = parseFloat(calculateResidual(w));
-          if (residual <= w.regulatoryClearanceLevel) {
-            return { ...w, status: 'liberable' };
-          }
+    let toUpdate: any[] = [];
+    wasteItems.forEach((w: any) => {
+      if (w.status === 'stockage') {
+        const residual = parseFloat(calculateResidual(w));
+        if (residual <= w.regulatoryClearanceLevel) {
+          toUpdate.push({ ...w, status: 'liberable' });
         }
-        return w;
+      }
+    });
+
+    if (toUpdate.length > 0) {
+      import('@/lib/firebase').then(({ db }) => {
+        import('firebase/firestore').then(({ doc, writeBatch }) => {
+          const batch = writeBatch(db);
+          toUpdate.forEach(w => {
+            batch.update(doc(db, 'wasteItems', w.id), { status: 'liberable' });
+          });
+          batch.commit().then(() => setIsUpdating(false)).catch(e => { console.error(e); setIsUpdating(false); });
+        });
       });
-      setWasteItems(updated);
+    } else {
       setIsUpdating(false);
-    }, 600);
+    }
   };
 
   return (
@@ -607,26 +682,27 @@ function SortieView({ wasteItems, setWasteItems, users }: any) {
     e.preventDefault();
     if (!controlItem) return;
 
-    const updatedList = wasteItems.map((w: WasteItem) => {
-      if (w.id === controlItem.id) {
-        return {
-          ...w,
-          status: 'elimine',
-          exitControlDate: new Date().toISOString(),
-          exitDoseRate: Number(controlData.exitDoseRate),
-          exitConformity: controlData.exitConformity === 'Oui',
-          exitController: controlData.exitController,
-          eliminationDate: new Date().toISOString(),
-          eliminationMode: controlData.eliminationMode,
-          eliminationResponsible: controlData.exitController
-        };
-      }
-      return w;
-    });
+    const updatedData = {
+      status: 'elimine',
+      exitControlDate: new Date().toISOString(),
+      exitDoseRate: Number(controlData.exitDoseRate),
+      exitConformity: controlData.exitConformity === 'Oui',
+      exitController: controlData.exitController,
+      eliminationDate: new Date().toISOString(),
+      eliminationMode: controlData.eliminationMode,
+      eliminationResponsible: controlData.exitController
+    };
 
-    setWasteItems(updatedList);
-    setControlItem(null);
-    setControlData({ exitDoseRate: '', exitConformity: 'Oui', exitController: userOptions.length > 0 ? userOptions[0] : '', eliminationMode: 'Filière ANDRA' });
+    import('@/lib/firebase').then(({ db }) => {
+      import('firebase/firestore').then(({ doc, updateDoc }) => {
+        updateDoc(doc(db, 'wasteItems', controlItem.id), updatedData).then(() => {
+          setControlItem(null);
+          setControlData({ exitDoseRate: '', exitConformity: 'Oui', exitController: userOptions.length > 0 ? userOptions[0] : '', eliminationMode: 'Filière ANDRA' });
+        }).catch(err => {
+          console.error("Error updating document: ", err);
+        });
+      });
+    });
   };
 
   return (
@@ -719,11 +795,12 @@ function IncidentsView({ incidents, setIncidents, wasteItems, users }: any) {
 
   const handleChange = (e: any) => setFormData({ ...formData, [e.target.name]: e.target.value });
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    const newIncident: Incident = {
+    const newIncident: Partial<Incident> = {
       id: `INC-2024-${String(incidents.length + 1).padStart(3, '0')}`,
       date: new Date().toISOString(),
+      hospitalId: 'default-hospital',
       personnelFunction: formData.personnelFunction,
       type: formData.type as any,
       doseRateBefore: Number(formData.doseRateBefore),
@@ -731,8 +808,16 @@ function IncidentsView({ incidents, setIncidents, wasteItems, users }: any) {
       doseRateAfter: Number(formData.doseRateAfter),
       wasteId: formData.wasteId
     };
-    setIncidents([newIncident, ...incidents]);
     setIsAdding(false);
+
+    import('@/lib/firebase').then(({ db }) => {
+      import('firebase/firestore').then(({ doc, setDoc }) => {
+        setDoc(doc(db, 'incidents', newIncident.id!), newIncident).catch(err => {
+          console.error("Error adding incident: ", err);
+        });
+      });
+    });
+
     setFormData({type: 'Déversement accidentel', personnelFunction: userOptions.length > 0 ? userOptions[0] : '', doseRateBefore: '', correctiveActions: '', doseRateAfter: '', wasteId: ''});
   };
 
@@ -953,23 +1038,32 @@ function UsersView({ users, setUsers }: any) {
 
   const handleChange = (e: any) => setFormData({ ...formData, [e.target.name]: e.target.value });
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     let defaultPermissions = ['lecture'];
     if (formData.role === 'Administrateur') defaultPermissions = ['admin_complet'];
     else if (formData.role === 'Radiopharmacien') defaultPermissions = ['lecture', 'gestion_totale'];
     else if (formData.role === 'Manipulateur' || formData.role === 'Médecin nucléaire') defaultPermissions = ['lecture', 'ajout_dechet'];
 
-    const newUser: User = { 
+    const newUser: Partial<User> = { 
       id: String(Date.now()), 
+      hospitalId: 'default-hospital',
       name: formData.name, 
       role: formData.role as any, 
       email: formData.email,
       permissions: defaultPermissions,
       lastLogin: new Date().toISOString()
     };
-    setUsers([...users, newUser]);
     setIsAdding(false);
+
+    import('@/lib/firebase').then(({ db }) => {
+      import('firebase/firestore').then(({ doc, setDoc }) => {
+        setDoc(doc(db, 'users', newUser.id!), newUser).catch(err => {
+          console.error("Error adding user: ", err);
+        });
+      });
+    });
+
     setFormData({ name: '', role: 'Manipulateur', email: '' });
   };
 
