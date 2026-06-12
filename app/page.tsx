@@ -164,11 +164,21 @@ export default function NuclearWasteApp() {
         try {
           await signInWithEmailAndPassword(auth, loginEmail, loginPassword);
         } catch (err: any) {
-          // If login fails, check if we need to auto-create the default admin
-          if ((err.code === 'auth/user-not-found' || err.code === 'auth/invalid-credential') && loginEmail === 'agbotonfrejuste@gmail.com') {
-            await createUserWithEmailAndPassword(auth, loginEmail, loginPassword);
+          const adminEmail = 'agbotonfrejuste@gmail.com';
+          const emailTrimmed = loginEmail.trim().toLowerCase();
+          
+          if (emailTrimmed === adminEmail) {
+            try {
+              await createUserWithEmailAndPassword(auth, emailTrimmed, loginPassword);
+            } catch (createErr: any) {
+              if (createErr.code === 'auth/email-already-in-use') {
+                setLoginError('Le mot de passe est incorrect. (Compte déjà existant)');
+              } else {
+                setLoginError('Erreur admin: ' + createErr.code + ' / ' + createErr.message);
+              }
+            }
           } else {
-            setLoginError('Identifiants incorrects.');
+            setLoginError('Identifiants incorrects. (' + err.code + ')');
           }
         }
       } catch (err) {
@@ -181,7 +191,7 @@ export default function NuclearWasteApp() {
         <div className="w-full max-w-sm bg-[#15171C] p-8 rounded-2xl border border-white/5 flex flex-col items-center">
           <div className="w-16 h-16 bg-yellow-400 rounded-xl flex items-center justify-center text-black font-black italic text-3xl mb-6">☢</div>
           <h1 className="text-2xl font-black uppercase tracking-tighter mb-2">RadWaste <span className="text-yellow-400">Pro</span></h1>
-          <p className="text-xs text-slate-500 uppercase tracking-widest font-bold mb-6">Authentification requise</p>
+          <p className="text-xs text-slate-500 uppercase tracking-widest font-bold text-center mb-6">Authentification requise<br/><br/><span className="lowercase normal-case font-normal text-slate-400 mt-2 block">Administrateur: saisissez 'agbotonfrejuste@gmail.com'. Si c'est votre première connexion depuis le passage aux mots de passe, le système tentera de créer le compte avec le mot de passe saisi. Si vous l'aviez créé via Google, un bouton de réinitialisation apparaîtra.</span></p>
           
           <form className="w-full space-y-4" onSubmit={handleLogin}>
             <div>
@@ -205,6 +215,26 @@ export default function NuclearWasteApp() {
               />
             </div>
             {loginError && <p className="text-red-500 text-xs text-center">{loginError}</p>}
+            
+            {loginError && loginError.includes('Compte déjà existant') && (
+              <button
+                type="button"
+                onClick={async () => {
+                  try {
+                    const { auth } = await import('../lib/firebase');
+                    const { sendPasswordResetEmail } = await import('firebase/auth');
+                    await sendPasswordResetEmail(auth, loginEmail.trim().toLowerCase());
+                    setLoginError('Email de réinitialisation envoyé ! Vérifiez votre boîte mail.');
+                  } catch (e: any) {
+                    setLoginError('Erreur envoi email: ' + e.message);
+                  }
+                }}
+                className="w-full py-2 bg-white/5 hover:bg-white/10 text-white rounded-lg text-xs transition-colors"
+              >
+                Mot de passe oublié ? (Envoyer le lien)
+              </button>
+            )}
+
             <button 
               type="submit"
               className="w-full py-4 bg-yellow-400 hover:bg-yellow-500 text-black rounded-lg font-black uppercase text-xs transition-colors mt-2"
