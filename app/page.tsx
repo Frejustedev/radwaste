@@ -143,9 +143,14 @@ export default function NuclearWasteApp() {
   
   // Calculate specific metrics for dashboard
   const metrics = useMemo(() => {
+    const validIncidents = incidents.filter((i: any) => {
+      if (i.wasteId) return wasteItems.some(w => w.id === i.wasteId);
+      return true;
+    });
+
     const totalStored = wasteItems.filter(w => w.status === 'stockage').length;
     const liberable = wasteItems.filter(w => w.status === 'liberable').length;
-    const incidentsCount = incidents.length;
+    const incidentsCount = validIncidents.length;
     const nonConformes = wasteItems.filter(w => w.exitConformity === false).length + incidentsCount;
     
     const totalActivity = wasteItems
@@ -1117,7 +1122,7 @@ function IncidentsView({ incidents, setIncidents, wasteItems, users, logAction }
       )}
 
        <div className="bg-[#15171C] rounded-3xl border border-white/5 overflow-hidden shrink-0">
-         {incidents.map((inc: any) => (
+         {incidents.filter((inc: any) => !inc.wasteId || wasteItems.some((w: any) => w.id === inc.wasteId)).map((inc: any) => (
            <div key={inc.id} className="group p-6 border-b border-white/5 last:border-0 hover:bg-white/[0.02] transition">
              <div className="flex justify-between items-start mb-2">
                <div>
