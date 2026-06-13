@@ -5,3 +5,14 @@ coverage/
 *.log
 .env*
 !.env.example
+
+# Configuration Firebase locale (générée/spécifique à l'environnement)
+firebase-applet-config.json
+
+# Sortie Firebase / Functions
+functions/node_modules/
+functions/lib/
+.firebase/
+
+.vercel
+*.tsbuildinfo

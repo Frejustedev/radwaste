@@ -1,11 +1,21 @@
 import { defineConfig } from "eslint/config";
 import next from "eslint-config-next";
-import path from "node:path";
-import { fileURLToPath } from "node:url";
+import tseslint from "@typescript-eslint/eslint-plugin";
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
-
-export default defineConfig([{
+export default defineConfig([
+  {
+    ignores: [".next/**", "node_modules/**", "functions/**", "scripts/**"],
+  },
+  {
     extends: [...next],
-}]);
+    plugins: {
+      "@typescript-eslint": tseslint,
+    },
+    rules: {
+      "@typescript-eslint/no-explicit-any": "warn",
+      "@typescript-eslint/no-unused-vars": ["warn", { argsIgnorePattern: "^_", varsIgnorePattern: "^_" }],
+      // Règle purement cosmétique (apostrophes françaises dans le texte JSX) : bruyante, aucun bug réel.
+      "react/no-unescaped-entities": "off",
+    },
+  },
+]);

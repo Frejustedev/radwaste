@@ -1,39 +1,69 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-    match /{document=**} {
-      allow read, write: if false;
-    }
 
+    // ---------------------------------------------------------------
+    // Helpers d'authentification / autorisation
+    // ---------------------------------------------------------------
     function isSignedIn() {
       return request.auth != null;
     }
 
-    function isValidId(id) {
-      return id is string && id.size() > 0 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    function callerExists() {
+      return isSignedIn()
+        && exists(/databases/$(database)/documents/users/$(request.auth.uid));
     }
 
-    function incoming() {
-      return request.resource.data;
+    function callerDoc() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
     }
 
-    function existing() {
-      return resource.data;
+    function callerRole() {
+      return callerExists() ? callerDoc().role : '';
     }
 
+    function callerHospital() {
+      return callerExists() ? callerDoc().hospitalId : '';
+    }
+
+    function isAdmin() {
+      return callerRole() == 'Administrateur';
+    }
+
+    // Rôles autorisés à gérer (créer / modifier / supprimer) les déchets et incidents.
+    function canManageWaste() {
+      return isAdmin()
+        || callerRole() == 'Radiopharmacien'
+        || callerRole() == 'Médecin nucléaire'
+        || callerRole() == 'Manipulateur'
+        || callerRole() == 'Physicien médical'
+        || callerRole() == 'Conseiller en radioprotection';
+    }
+
+    // Isolation multi-établissement : la donnée doit appartenir au même hôpital que l'appelant.
+    function sameHospital(data) {
+      return data.hospitalId == callerHospital() && callerHospital() != '';
+    }
+
+    // ---------------------------------------------------------------
+    // Validateurs de schéma (réellement appliqués ci-dessous)
+    // ---------------------------------------------------------------
     function isValidWasteItem(data) {
       return data.keys().hasAll(['id', 'createdAt', 'type', 'radionuclide', 'status', 'hospitalId']) &&
-             data.id is string && data.id.size() <= 128 &&
+             data.id is string && data.id.size() > 0 && data.id.size() <= 128 &&
              data.createdAt is string && data.createdAt.size() <= 64 &&
              data.type is string && data.type.size() <= 64 &&
              data.radionuclide is string && data.radionuclide.size() <= 64 &&
-             data.status is string && data.status.size() <= 64 &&
-             data.hospitalId is string && data.hospitalId.size() <= 128;
+             data.status in ['stockage', 'liberable', 'elimine', 'incident'] &&
+             data.hospitalId is string && data.hospitalId.size() <= 128 &&
+             (!('initialActivity' in data) || data.initialActivity is number) &&
+             (!('halfLife' in data) || data.halfLife is number) &&
+             (!('mass' in data) || data.mass is number);
     }
 
     function isValidIncident(data) {
       return data.keys().hasAll(['id', 'date', 'type', 'doseRateBefore', 'doseRateAfter', 'hospitalId']) &&
-             data.id is string && data.id.size() <= 128 &&
+             data.id is string && data.id.size() > 0 && data.id.size() <= 128 &&
              data.date is string && data.date.size() <= 64 &&
              data.type is string && data.type.size() <= 128 &&
              data.doseRateBefore is number &&
@@ -43,26 +73,92 @@ service cloud.firestore {
 
     function isValidUser(data) {
       return data.keys().hasAll(['id', 'name', 'role', 'hospitalId']) &&
-             data.id is string && data.id.size() <= 128 &&
-             data.name is string && data.name.size() <= 128 &&
-             data.role is string && data.role.size() <= 64 &&
-             data.hospitalId is string && data.hospitalId.size() <= 128;
+             data.id is string && data.id.size() > 0 && data.id.size() <= 128 &&
+             data.name is string && data.name.size() > 0 && data.name.size() <= 128 &&
+             data.role in ['Administrateur', 'Médecin nucléaire', 'Radiopharmacien', 'Manipulateur', 'Physicien médical', 'Conseiller en radioprotection'] &&
+             data.hospitalId is string && data.hospitalId.size() <= 128 &&
+             (!('email' in data) || data.email is string) &&
+             (!('permissions' in data) || data.permissions is list);
     }
 
+    // ---------------------------------------------------------------
+    // Déchets radioactifs
+    // ---------------------------------------------------------------
     match /wasteItems/{wasteItemId} {
-      allow read, write: if isSignedIn();
+      allow read: if isSignedIn() && sameHospital(resource.data);
+      allow create: if isSignedIn() && canManageWaste()
+                       && isValidWasteItem(request.resource.data)
+                       && request.resource.data.hospitalId == callerHospital();
+      allow update: if isSignedIn() && canManageWaste()
+                       && isValidWasteItem(request.resource.data)
+                       && sameHospital(resource.data)
+                       && request.resource.data.hospitalId == resource.data.hospitalId
+                       && request.resource.data.id == resource.data.id;        // id immuable
+      allow delete: if isSignedIn() && isAdmin() && sameHospital(resource.data);
     }
 
+    // ---------------------------------------------------------------
+    // Incidents
+    // ---------------------------------------------------------------
     match /incidents/{incidentId} {
-      allow read, write: if isSignedIn();
+      allow read: if isSignedIn() && sameHospital(resource.data);
+      allow create: if isSignedIn() && canManageWaste()
+                       && isValidIncident(request.resource.data)
+                       && request.resource.data.hospitalId == callerHospital();
+      allow update: if isSignedIn() && canManageWaste()
+                       && isValidIncident(request.resource.data)
+                       && sameHospital(resource.data)
+                       && request.resource.data.id == resource.data.id;
+      allow delete: if isSignedIn() && isAdmin() && sameHospital(resource.data);
     }
 
+    // ---------------------------------------------------------------
+    // Utilisateurs / profils
+    // ---------------------------------------------------------------
     match /users/{userId} {
-      allow read, write: if isSignedIn();
+      // Lecture de son propre profil (nécessaire au bootstrap de session) ou des profils du même hôpital.
+      allow get: if isSignedIn() && (request.auth.uid == userId || sameHospital(resource.data));
+      allow list: if isSignedIn() && sameHospital(resource.data);
+
+      // Seul un administrateur crée des comptes, et uniquement dans son hôpital.
+      allow create: if isSignedIn() && isAdmin()
+                       && isValidUser(request.resource.data)
+                       && request.resource.data.hospitalId == callerHospital();
+
+      // Mise à jour : un admin peut tout modifier dans son hôpital ;
+      // un utilisateur peut mettre à jour SON profil SANS toucher role / permissions / hospitalId (anti-escalade).
+      allow update: if isSignedIn() && isValidUser(request.resource.data) && (
+                        (isAdmin() && sameHospital(resource.data))
+                        || (
+                          request.auth.uid == userId
+                          && request.resource.data.role == resource.data.role
+                          && request.resource.data.hospitalId == resource.data.hospitalId
+                          && request.resource.data.get('permissions', []) == resource.data.get('permissions', [])
+                        )
+                      );
+
+      // Un admin ne peut pas se supprimer lui-même.
+      allow delete: if isSignedIn() && isAdmin() && sameHospital(resource.data)
+                       && request.auth.uid != userId;
     }
 
+    // ---------------------------------------------------------------
+    // Journal d'actions (piste d'audit) — append-only et horodaté serveur
+    // ---------------------------------------------------------------
     match /logs/{logId} {
-      allow read, write: if isSignedIn();
+      allow read: if isSignedIn() && sameHospital(resource.data);
+      allow create: if isSignedIn()
+                       && request.resource.data.hospitalId == callerHospital()
+                       && request.resource.data.userEmail == request.auth.token.email
+                       && request.resource.data.date == request.time;     // horodatage serveur imposé
+      allow update, delete: if false;                                     // inviolable
+    }
+
+    // ---------------------------------------------------------------
+    // Refus par défaut pour tout chemin non explicitement couvert
+    // ---------------------------------------------------------------
+    match /{document=**} {
+      allow read, write: if false;
     }
   }
 }
