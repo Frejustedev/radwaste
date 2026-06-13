@@ -1,24 +1,27 @@
 import { initializeApp, getApps, type FirebaseOptions } from 'firebase/app';
 import { getAuth, signOut } from 'firebase/auth';
 import { getFirestore } from 'firebase/firestore';
-import localFirebaseConfig from '../firebase-applet-config.json';
 
-// La configuration Firebase web n'est pas un secret (clé publique côté client), mais elle
-// est fournie en priorité par variables d'environnement ; le fichier local ne sert que de
-// repli en développement. La sécurité réelle repose sur firestore.rules + Firebase App Check.
+// Configuration Firebase web (clés publiques, non secrètes) lue depuis les variables
+// d'environnement NEXT_PUBLIC_FIREBASE_* (cf. .env.example). La sécurité réelle repose sur
+// firestore.rules + Firebase App Check, pas sur la confidentialité de cette config.
 const firebaseConfig: FirebaseOptions = {
-  apiKey: process.env.NEXT_PUBLIC_FIREBASE_API_KEY || localFirebaseConfig.apiKey,
-  authDomain: process.env.NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN || localFirebaseConfig.authDomain,
-  projectId: process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID || localFirebaseConfig.projectId,
-  storageBucket: process.env.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET || localFirebaseConfig.storageBucket,
-  messagingSenderId: process.env.NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID || localFirebaseConfig.messagingSenderId,
-  appId: process.env.NEXT_PUBLIC_FIREBASE_APP_ID || localFirebaseConfig.appId,
+  apiKey: process.env.NEXT_PUBLIC_FIREBASE_API_KEY,
+  authDomain: process.env.NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN,
+  projectId: process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID,
+  storageBucket: process.env.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET,
+  messagingSenderId: process.env.NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID,
+  appId: process.env.NEXT_PUBLIC_FIREBASE_APP_ID,
 };
 
-const databaseId = process.env.NEXT_PUBLIC_FIREBASE_DATABASE_ID || localFirebaseConfig.firestoreDatabaseId;
+const databaseId = process.env.NEXT_PUBLIC_FIREBASE_DATABASE_ID;
+
+if (!firebaseConfig.apiKey && typeof window !== 'undefined') {
+  console.error('Configuration Firebase manquante : renseignez les variables NEXT_PUBLIC_FIREBASE_* (voir .env.example).');
+}
 
 const app = getApps().find((a) => a.name === '[DEFAULT]') || initializeApp(firebaseConfig);
-export const db = getFirestore(app, databaseId);
+export const db = databaseId ? getFirestore(app, databaseId) : getFirestore(app);
 export const auth = getAuth(app);
 
 // Instance secondaire utilisée uniquement pour la création de comptes côté client en repli,
