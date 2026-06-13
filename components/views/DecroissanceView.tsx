@@ -22,6 +22,7 @@ const fmtDate = (v: Date | null): string => (v === null ? '—' : v.toLocaleDate
 export function DecroissanceView({ wasteItems, profile }: DecroissanceViewProps): React.ReactElement {
   const { success, error } = useToast();
   const [isWorking, setIsWorking] = useState(false);
+  const [releasingId, setReleasingId] = useState<string | null>(null);
   // « Tick » de rafraîchissement : recalcule les activités résiduelles toutes les 60 s.
   const [tick, setTick] = useState(0);
 
@@ -72,6 +73,37 @@ export function DecroissanceView({ wasteItems, profile }: DecroissanceViewProps)
       setIsWorking(false);
     }
   };
+
+  // Libère un déchet individuellement. Si les critères ne sont pas remplis, demande une confirmation
+  // explicite (libération forcée, déconseillée) et la trace dans le journal d'audit.
+  async function handleReleaseOne(item: WasteItem): Promise<void> {
+    if (releasingId) return;
+    const decay = evaluateDecay(item, new Date());
+    const id = item.registryNumber ?? item.id;
+    if (!decay.meetsStorageReleaseCriteria) {
+      const reasons = decay.blockingReasons.length > 0 ? '\n• ' + decay.blockingReasons.join('\n• ') : '';
+      const ok = window.confirm(
+        `⚠️ LIBÉRATION DÉCONSEILLÉE\n\nLe déchet ${id} ne remplit PAS les critères réglementaires de libération :${reasons}\n\n`
+        + `Forcer la libération engage la responsabilité de l'opérateur et de la PCR, et sera tracé dans le journal d'audit.\n\nConfirmer la libération forcée ?`,
+      );
+      if (!ok) return;
+    }
+    setReleasingId(item.id);
+    try {
+      await releaseWasteItems([item.id]);
+      if (decay.meetsStorageReleaseCriteria) {
+        success(`Déchet ${id} passé au statut « libérable ».`);
+        await writeLog(profile.hospitalId, `Libération du déchet ${id} (critères remplis) par ${profile.name}.`);
+      } else {
+        success(`Déchet ${id} libéré — forçage déconseillé (tracé).`);
+        await writeLog(profile.hospitalId, `LIBÉRATION FORCÉE (déconseillée) du déchet ${id} par ${profile.name} — critères non remplis : ${decay.blockingReasons.join(' ; ') || 'n/a'}.`);
+      }
+    } catch {
+      error('Échec de la libération. Veuillez réessayer.');
+    } finally {
+      setReleasingId(null);
+    }
+  }
 
   // Colonnes recréées à chaque rendu pour refléter `now` (tick) et `readyIds`.
   const columns: Column<WasteItem>[] = [
@@ -141,6 +173,38 @@ export function DecroissanceView({ wasteItems, profile }: DecroissanceViewProps)
           {readyIds.has(w.id) && <div className="mt-1 text-xs font-bold uppercase tracking-wide text-amber-500">Seuil atteint</div>}
         </div>
       ),
+    },
+    {
+      key: 'action',
+      header: 'Action',
+      align: 'right',
+      render: (w) => {
+        if (w.status !== 'stockage') {
+          return <span className="text-xs text-faint">→ Sortie & Élimination</span>;
+        }
+        const meets = evaluateDecay(w, now).meetsStorageReleaseCriteria;
+        const busy = releasingId === w.id;
+        return meets ? (
+          <button
+            type="button"
+            onClick={() => void handleReleaseOne(w)}
+            disabled={busy}
+            className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-bold bg-accent text-black hover:opacity-90 disabled:opacity-50"
+          >
+            {busy ? 'Libération…' : 'Libérer'}
+          </button>
+        ) : (
+          <button
+            type="button"
+            onClick={() => void handleReleaseOne(w)}
+            disabled={busy}
+            title="Le déchet ne remplit pas les critères : libération déconseillée."
+            className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-bold border border-amber-500/60 text-amber-500 hover:bg-amber-500/10 disabled:opacity-50"
+          >
+            {busy ? 'Libération…' : 'Forcer (déconseillé)'}
+          </button>
+        );
+      },
     },
   ];
 
