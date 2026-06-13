@@ -27,6 +27,13 @@ function formatIsoDate(iso?: string): string {
   return d.toLocaleDateString('fr-FR');
 }
 
+/** Date-heure locale courante tronquée à la minute (format attendu par un input datetime-local). */
+function nowLocal16(): string {
+  const d = new Date();
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
 export function SortieView({ wasteItems, users, profile, settings }: SortieViewProps) {
   const { success, error } = useToast();
 
@@ -35,6 +42,7 @@ export function SortieView({ wasteItems, users, profile, settings }: SortieViewP
   const [exitDoseRate, setExitDoseRate] = useState('');
   const [eliminationMode, setEliminationMode] = useState('');
   const [exitController, setExitController] = useState(profile.name);
+  const [releaseDate, setReleaseDate] = useState(''); // « Libéré le » — modifiable (ex. saisie d'anciens déchets)
   const [derogationConfirmed, setDerogationConfirmed] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
@@ -59,6 +67,7 @@ export function SortieView({ wasteItems, users, profile, settings }: SortieViewP
     setExitDoseRate('');
     setEliminationMode('');
     setExitController(profile.name);
+    setReleaseDate(nowLocal16());
     setDerogationConfirmed(false);
   }
 
@@ -89,20 +98,26 @@ export function SortieView({ wasteItems, users, profile, settings }: SortieViewP
       return;
     }
 
+    // « Libéré le » : par défaut maintenant, mais modifiable (saisie d'anciens déchets du registre).
+    const releaseTs = releaseDate ? new Date(releaseDate) : new Date();
+    if (Number.isNaN(releaseTs.getTime())) {
+      error('Date de sortie (« Libéré le ») invalide.');
+      return;
+    }
+    const releaseIso = releaseTs.toISOString();
     const exitConformity = ev.meetsAllCriteria;
-    const nowIso = new Date().toISOString();
     const identifier = controlled.registryNumber ?? controlled.id;
 
     setIsSubmitting(true);
     try {
       await updateWasteItem(controlled.id, {
         status: 'elimine',
-        exitControlDate: nowIso,
+        exitControlDate: releaseIso,
         exitDoseRate: Number(parsedDose),
         exitConformity,
         exitController,
         exitSignedBy: profile.email, // signature électronique : compte authentifié
-        eliminationDate: nowIso,
+        eliminationDate: releaseIso,
         eliminationMode,
         eliminationResponsible: exitController,
       });
@@ -264,6 +279,18 @@ export function SortieView({ wasteItems, users, profile, settings }: SortieViewP
               options={userNames}
               required
             />
+
+            <FormInput
+              label="Libéré le (date de sortie)"
+              name="releaseDate"
+              type="datetime-local"
+              value={releaseDate}
+              onChange={(e: React.ChangeEvent<HTMLInputElement>) => setReleaseDate(e.target.value)}
+              required
+            />
+            <p className="text-xs text-faint -mt-2">
+              Par défaut la date du jour. Modifiable pour enregistrer d&apos;anciens déchets du registre avec leur date réelle de sortie.
+            </p>
 
             {needsDerogation && evaluation && (
               <div className="rounded-lg border border-red-500/40 bg-red-500/10 p-3 space-y-2">
