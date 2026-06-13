@@ -216,29 +216,34 @@ export function DashboardView({ wasteItems, incidents, onNavigate, theme }: Dash
           title="En Stockage"
           value={stockageCount}
           icon={<Package className="h-5 w-5" />}
+          hint="Déchets actuellement en décroissance dans le local."
         />
         <KPICard
           title="Activité totale (MBq)"
           value={totalResidualMBq.toFixed(2)}
           icon={<Activity className="h-5 w-5" />}
           valueClass="text-accent"
+          hint="Somme des activités résiduelles des déchets en stockage et libérables."
         />
         <KPICard
           title="Libérables"
           value={liberableCount}
           icon={<CheckCircle2 className="h-5 w-5" />}
+          hint="Déchets ayant atteint les critères de libération, en attente de contrôle de sortie."
         />
         <KPICard
           title="Non conformes"
           value={nonConformesCount}
           icon={<ShieldAlert className="h-5 w-5" />}
           valueClass="text-amber-500"
+          hint="Déchets sortis sous dérogation : contrôle de sortie validé alors qu'un critère réglementaire n'était pas satisfait (sous responsabilité de la PCR)."
         />
         <KPICard
           title="Incidents"
           value={validIncidentsCount}
           icon={<AlertTriangle className="h-5 w-5" />}
           valueClass="text-red-500"
+          hint="Incidents déclarés (déversement, contamination, perte de déchet)."
         />
       </div>
 

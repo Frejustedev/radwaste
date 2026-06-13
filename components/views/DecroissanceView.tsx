@@ -55,7 +55,12 @@ export function DecroissanceView({ wasteItems, profile }: DecroissanceViewProps)
         .filter((w) => w.status === 'stockage' && evaluateDecay(w, evalNow).meetsStorageReleaseCriteria)
         .map((w) => w.id);
       if (releasableIds.length === 0) {
-        success('Aucun déchet ne remplit les critères de libération.');
+        const alreadyLiberable = wasteItems.filter((w) => w.status === 'liberable').length;
+        if (alreadyLiberable > 0) {
+          success(`Aucun NOUVEAU déchet à libérer. ${alreadyLiberable} déchet(s) déjà « libérable(s) » — à traiter dans « Sortie & Élimination ».`);
+        } else {
+          success('Aucun déchet en stockage ne remplit encore les critères de libération.');
+        }
         return;
       }
       await releaseWasteItems(releasableIds);

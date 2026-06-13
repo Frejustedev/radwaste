@@ -2,14 +2,17 @@
 
 import React from 'react';
 
-export function KPICard({ title, value, icon, valueClass = 'text-primary' }: { title: string; value: React.ReactNode; icon: React.ReactNode; valueClass?: string }) {
+export function KPICard({ title, value, icon, valueClass = 'text-primary', hint }: { title: string; value: React.ReactNode; icon: React.ReactNode; valueClass?: string; hint?: string }) {
   return (
-    <div className="p-6 bg-surface border border-subtle rounded-2xl flex flex-col justify-between h-32">
-      <div className="flex justify-between items-start">
-        <div className="text-xs text-muted font-bold uppercase tracking-wider">{title}</div>
-        <div className="text-faint" aria-hidden="true">{icon}</div>
+    <div className="p-6 bg-surface border border-subtle rounded-2xl flex flex-col justify-between min-h-[8rem]" title={hint}>
+      <div>
+        <div className="flex justify-between items-start gap-2">
+          <div className="text-xs text-muted font-bold uppercase tracking-wider">{title}</div>
+          <div className="text-faint shrink-0" aria-hidden="true">{icon}</div>
+        </div>
+        {hint && <p className="mt-1 text-[11px] text-faint font-medium normal-case leading-tight">{hint}</p>}
       </div>
-      <div className={`text-4xl lg:text-5xl font-black italic tracking-tighter ${valueClass}`}>{value}</div>
+      <div className={`text-4xl lg:text-5xl font-black italic tracking-tighter mt-2 ${valueClass}`}>{value}</div>
     </div>
   );
 }
