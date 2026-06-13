@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useMemo, useState } from 'react';
-import { Plus, Trash2, Edit2, Package, X } from 'lucide-react';
+import { Plus, Trash2, Edit2, X } from 'lucide-react';
 import type { WasteItem, User, Radionuclide, WasteType } from '@/types';
 import { validateWasteForm } from '@/lib/validation/schemas';
 import {
@@ -20,9 +20,9 @@ import { FormInput, FormSelect } from '@/components/ui/Form';
 import {
   IconButton,
   StatusBadge,
-  EmptyState,
   SectionHeader,
 } from '@/components/ui/Primitives';
+import { DataTable, type Column } from '@/components/ui/DataTable';
 
 const ORIGIN_SERVICE_OPTIONS: string[] = [
   'labo chaud',
@@ -260,6 +260,91 @@ export function IdentificationView({ wasteItems, users, profile }: Identificatio
     }
   }
 
+  const columns = useMemo<Column<WasteItem>[]>(() => [
+    {
+      key: 'id',
+      header: 'ID',
+      render: (item) => (
+        <span className="font-mono text-xs text-accent">{item.registryNumber ?? item.id}</span>
+      ),
+      sortValue: (item) => item.registryNumber ?? item.id,
+      searchValue: (item) => item.registryNumber ?? item.id,
+      csvValue: (item) => item.registryNumber ?? item.id,
+    },
+    {
+      key: 'info',
+      header: 'Info',
+      render: (item) => (
+        <div>
+          <div className="capitalize font-bold text-primary">{item.type}</div>
+          <div className="text-xs text-muted capitalize">{item.originService}</div>
+          <div className="text-xs text-faint">{item.responsibleOperator}</div>
+        </div>
+      ),
+      searchValue: (item) => `${item.type} ${item.originService} ${item.responsibleOperator}`,
+      csvValue: (item) => item.type,
+    },
+    {
+      key: 'isotope',
+      header: 'Isotope',
+      render: (item) => (
+        <div>
+          <div className="font-bold text-primary">{item.radionuclide}</div>
+          <div className="text-xs text-muted">T½ : {item.halfLife} h</div>
+        </div>
+      ),
+      sortValue: (item) => item.radionuclide,
+      searchValue: (item) => item.radionuclide,
+      csvValue: (item) => item.radionuclide,
+    },
+    {
+      key: 'mesure',
+      header: 'Mesure',
+      render: (item) => (
+        <div>
+          <div className="text-primary">{item.initialActivity} MBq</div>
+          <div className="text-xs text-muted">
+            {new Date(item.measureDate).toLocaleString('fr-FR')}
+          </div>
+          <div className="text-xs text-faint">masse {item.mass} g</div>
+        </div>
+      ),
+      sortValue: (item) => item.initialActivity,
+      csvValue: (item) => item.initialActivity,
+    },
+    {
+      key: 'statut',
+      header: 'Statut',
+      render: (item) => <StatusBadge status={item.status} />,
+    },
+    {
+      key: 'actions',
+      header: 'Actions',
+      align: 'right',
+      render: (item) => (
+        <div className="flex items-center justify-end gap-2">
+          <IconButton
+            variant="info"
+            label={`Modifier le déchet ${item.registryNumber ?? item.id}`}
+            onClick={() => startEdit(item)}
+          >
+            <Edit2 className="w-4 h-4" aria-hidden="true" />
+          </IconButton>
+          <IconButton
+            variant="danger"
+            label={`Supprimer le déchet ${item.registryNumber ?? item.id}`}
+            onClick={() => {
+              if (deletingId !== item.id) void handleDelete(item);
+            }}
+          >
+            <Trash2 className="w-4 h-4" aria-hidden="true" />
+          </IconButton>
+        </div>
+      ),
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  ], [deletingId]);
+
   return (
     <div className="space-y-6">
       <SectionHeader
@@ -440,79 +525,21 @@ export function IdentificationView({ wasteItems, users, profile }: Identificatio
         </form>
       )}
 
-      <div className="bg-surface border border-subtle rounded-2xl overflow-hidden">
-        <div className="flex items-center gap-2 px-5 py-4 border-b border-subtle">
-          <Package className="w-4 h-4 text-faint" aria-hidden="true" />
+      <div className="bg-surface border border-subtle rounded-2xl p-5 space-y-4">
+        <div className="flex items-center gap-2">
           <h3 className="text-sm font-bold uppercase text-primary">Déchets en stockage</h3>
           <span className="text-xs text-muted">({storageItems.length})</span>
         </div>
 
-        {storageItems.length === 0 ? (
-          <EmptyState message="Aucun déchet en stockage pour le moment." />
-        ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="text-left text-xs uppercase text-muted border-b border-subtle">
-                  <th className="px-5 py-3 font-bold">ID</th>
-                  <th className="px-5 py-3 font-bold">Info</th>
-                  <th className="px-5 py-3 font-bold">Isotope</th>
-                  <th className="px-5 py-3 font-bold">Mesure</th>
-                  <th className="px-5 py-3 font-bold">Statut</th>
-                  <th className="px-5 py-3 font-bold text-right">Actions</th>
-                </tr>
-              </thead>
-              <tbody>
-                {storageItems.map((item) => (
-                  <tr key={item.id} className="border-b border-subtle last:border-0">
-                    <td className="px-5 py-3 font-mono text-xs text-accent align-top">
-                      {item.registryNumber ?? item.id}
-                    </td>
-                    <td className="px-5 py-3 align-top">
-                      <div className="capitalize font-bold text-primary">{item.type}</div>
-                      <div className="text-xs text-muted capitalize">{item.originService}</div>
-                      <div className="text-xs text-faint">{item.responsibleOperator}</div>
-                    </td>
-                    <td className="px-5 py-3 align-top">
-                      <div className="font-bold text-primary">{item.radionuclide}</div>
-                      <div className="text-xs text-muted">T½ : {item.halfLife} h</div>
-                    </td>
-                    <td className="px-5 py-3 align-top">
-                      <div className="text-primary">{item.initialActivity} MBq</div>
-                      <div className="text-xs text-muted">
-                        {new Date(item.measureDate).toLocaleString('fr-FR')}
-                      </div>
-                      <div className="text-xs text-faint">masse {item.mass} g</div>
-                    </td>
-                    <td className="px-5 py-3 align-top">
-                      <StatusBadge status={item.status} />
-                    </td>
-                    <td className="px-5 py-3 align-top">
-                      <div className="flex items-center justify-end gap-2">
-                        <IconButton
-                          variant="info"
-                          label={`Modifier le déchet ${item.registryNumber ?? item.id}`}
-                          onClick={() => startEdit(item)}
-                        >
-                          <Edit2 className="w-4 h-4" aria-hidden="true" />
-                        </IconButton>
-                        <IconButton
-                          variant="danger"
-                          label={`Supprimer le déchet ${item.registryNumber ?? item.id}`}
-                          onClick={() => {
-                            if (deletingId !== item.id) void handleDelete(item);
-                          }}
-                        >
-                          <Trash2 className="w-4 h-4" aria-hidden="true" />
-                        </IconButton>
-                      </div>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
+        <DataTable
+          columns={columns}
+          rows={storageItems}
+          getRowKey={(r) => r.id}
+          searchPlaceholder="Rechercher (ID, type, isotope, opérateur)…"
+          pageSize={10}
+          emptyMessage="Aucun déchet en stockage pour le moment."
+          exportFileName="dechets_stockage"
+        />
       </div>
     </div>
   );

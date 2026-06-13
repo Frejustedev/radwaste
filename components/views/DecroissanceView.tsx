@@ -3,43 +3,41 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { Activity, BellRing } from 'lucide-react';
 import type { WasteItem, User } from '@/types';
-import { evaluateDecay } from '@/lib/physics/decay';
+import { evaluateDecay, residualActivityMBq } from '@/lib/physics/decay';
 import { releaseWasteItems } from '@/lib/repositories/wasteRepository';
 import { writeLog } from '@/lib/repositories/logRepository';
 import { useToast } from '@/components/ui/Toast';
-import { StatusBadge, EmptyState, SectionHeader } from '@/components/ui/Primitives';
+import { StatusBadge, SectionHeader } from '@/components/ui/Primitives';
+import { DataTable, type Column } from '@/components/ui/DataTable';
 
 interface DecroissanceViewProps {
   wasteItems: WasteItem[];
   profile: User;
 }
 
+const fmtNum = (v: number | null, d: number): string => (v === null ? '—' : v.toFixed(d));
+const fmtExp = (v: number | null): string => (v === null ? '—' : v.toExponential(2));
+const fmtDate = (v: Date | null): string => (v === null ? '—' : v.toLocaleDateString('fr-FR'));
+
 export function DecroissanceView({ wasteItems, profile }: DecroissanceViewProps): React.ReactElement {
   const { success, error } = useToast();
-  const [isWorking, setIsWorking] = useState<boolean>(false);
+  const [isWorking, setIsWorking] = useState(false);
   // « Tick » de rafraîchissement : recalcule les activités résiduelles toutes les 60 s.
-  const [tick, setTick] = useState<number>(0);
+  const [tick, setTick] = useState(0);
 
   useEffect(() => {
-    const interval = setInterval(() => {
-      setTick((prev) => prev + 1);
-    }, 60000);
+    const interval = setInterval(() => setTick((p) => p + 1), 60000);
     return () => clearInterval(interval);
   }, []);
 
-  // `now` est figé à chaque tick pour que toutes les cellules d'un même rendu partagent l'instant.
   const now = useMemo<Date>(() => {
-    void tick; // dépendance volontaire : force le recalcul à chaque tick de rafraîchissement
+    void tick; // dépendance volontaire : force le recalcul à chaque tick
     return new Date();
   }, [tick]);
 
-  // Déchets affichés dans la table : tout sauf les éliminés.
-  const visibleItems = useMemo<WasteItem[]>(
-    () => wasteItems.filter((w) => w.status !== 'elimine'),
-    [wasteItems],
-  );
+  const rows = useMemo(() => wasteItems.filter((w) => w.status !== 'elimine'), [wasteItems]);
 
-  // Alerte automatique : déchets encore « en stockage » ayant déjà atteint le seuil réglementaire.
+  // Alerte automatique : déchets « en stockage » ayant déjà atteint le seuil réglementaire.
   const readyIds = useMemo<Set<string>>(() => {
     const ids = new Set<string>();
     for (const w of wasteItems) {
@@ -52,23 +50,17 @@ export function DecroissanceView({ wasteItems, profile }: DecroissanceViewProps)
     if (isWorking) return;
     setIsWorking(true);
     try {
-      const evaluationNow = new Date();
+      const evalNow = new Date();
       const releasableIds = wasteItems
-        .filter((w) => w.status === 'stockage')
-        .filter((w) => evaluateDecay(w, evaluationNow).meetsStorageReleaseCriteria)
+        .filter((w) => w.status === 'stockage' && evaluateDecay(w, evalNow).meetsStorageReleaseCriteria)
         .map((w) => w.id);
-
       if (releasableIds.length === 0) {
         success('Aucun déchet ne remplit les critères de libération.');
         return;
       }
-
       await releaseWasteItems(releasableIds);
       success(`${releasableIds.length} déchet(s) passé(s) au statut libérable.`);
-      await writeLog(
-        profile.hospitalId,
-        `${releasableIds.length} déchet(s) passé(s) au statut libérable après vérification des seuils par ${profile.name}.`,
-      );
+      await writeLog(profile.hospitalId, `${releasableIds.length} déchet(s) passé(s) au statut libérable après vérification des seuils par ${profile.name}.`);
     } catch {
       error('Échec de la vérification des seuils. Veuillez réessayer.');
     } finally {
@@ -76,31 +68,82 @@ export function DecroissanceView({ wasteItems, profile }: DecroissanceViewProps)
     }
   };
 
-  const formatNumber = (value: number | null, fractionDigits: number): string =>
-    value === null ? '—' : value.toFixed(fractionDigits);
-
-  const formatExponential = (value: number | null): string =>
-    value === null ? '—' : value.toExponential(2);
-
-  const formatDate = (value: Date | null): string =>
-    value === null ? '—' : value.toLocaleDateString('fr-FR');
+  // Colonnes recréées à chaque rendu pour refléter `now` (tick) et `readyIds`.
+  const columns: Column<WasteItem>[] = [
+    {
+      key: 'id',
+      header: 'Identifiant',
+      searchValue: (w) => w.registryNumber ?? w.id,
+      sortValue: (w) => w.registryNumber ?? w.id,
+      csvValue: (w) => w.registryNumber ?? w.id,
+      render: (w) => <span className="font-mono text-xs text-accent">{w.registryNumber ?? w.id}</span>,
+    },
+    {
+      key: 'isotope',
+      header: 'Isotope',
+      searchValue: (w) => w.radionuclide,
+      sortValue: (w) => w.radionuclide,
+      csvValue: (w) => w.radionuclide,
+      render: (w) => (
+        <div>
+          <div className="font-bold text-primary">{w.radionuclide}</div>
+          <div className="text-xs text-muted tabular">T½ : {w.halfLife} h</div>
+        </div>
+      ),
+    },
+    {
+      key: 'mesure',
+      header: 'Mesure initiale',
+      sortValue: (w) => w.initialActivity,
+      csvValue: (w) => w.initialActivity,
+      render: (w) => (
+        <div>
+          <div className="font-bold text-primary tabular">{w.initialActivity} MBq</div>
+          <div className="text-xs text-muted">{w.measureDate ? new Date(w.measureDate).toLocaleString('fr-FR') : '—'}</div>
+        </div>
+      ),
+    },
+    {
+      key: 'residual',
+      header: 'Activité résiduelle',
+      sortValue: (w) => residualActivityMBq(w, now) ?? -1,
+      csvValue: (w) => fmtNum(residualActivityMBq(w, now), 4),
+      render: (w) => {
+        const decay = evaluateDecay(w, now);
+        const reason = w.status === 'stockage' && decay.blockingReasons.length > 0 ? decay.blockingReasons[0] : null;
+        return (
+          <div>
+            <div className="text-base font-black italic tracking-tight text-accent tabular">{fmtNum(decay.residualMBq, 4)} MBq</div>
+            <div className="mt-1 space-y-0.5 text-xs text-muted">
+              <div>Décroissance : {fmtNum(decay.decayPct, 1)}%</div>
+              <div>Activité massique : {fmtExp(decay.massicBqPerG)} Bq/g (seuil {decay.clearanceLevelBqPerG ?? '—'} Bq/g)</div>
+              <div>Périodes : {fmtNum(decay.halfLives, 1)}</div>
+              <div>Date sortie estimée : {fmtDate(decay.releaseDate)}</div>
+            </div>
+            {reason && <div className="mt-2 text-xs text-faint">{reason}</div>}
+          </div>
+        );
+      },
+    },
+    {
+      key: 'statut',
+      header: 'Statut',
+      sortValue: (w) => w.status,
+      csvValue: (w) => w.status,
+      render: (w) => (
+        <div>
+          <StatusBadge status={w.status} />
+          {readyIds.has(w.id) && <div className="mt-1 text-xs font-bold uppercase tracking-wide text-amber-500">Seuil atteint</div>}
+        </div>
+      ),
+    },
+  ];
 
   return (
     <div className="space-y-4">
       <SectionHeader
         title="Décroissance radioactive"
         description="Suivi en temps réel des activités résiduelles et des critères de libération."
-        action={
-          <button
-            type="button"
-            onClick={handleCheckThresholds}
-            disabled={isWorking}
-            className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-accent text-sm font-bold text-black disabled:opacity-50 disabled:cursor-not-allowed transition-opacity"
-          >
-            <Activity className="w-4 h-4" aria-hidden="true" />
-            {isWorking ? 'Vérification…' : 'Vérifier les Seuils'}
-          </button>
-        }
       />
 
       {readyIds.size > 0 && (
@@ -114,79 +157,26 @@ export function DecroissanceView({ wasteItems, profile }: DecroissanceViewProps)
         </div>
       )}
 
-      <div className="bg-surface border border-subtle rounded-2xl overflow-hidden">
-        {visibleItems.length === 0 ? (
-          <EmptyState message="Aucun déchet en suivi de décroissance." />
-        ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm text-left">
-              <thead className="bg-surface-2 text-muted text-xs uppercase tracking-wider">
-                <tr>
-                  <th scope="col" className="px-4 py-3 font-bold">Identifiant</th>
-                  <th scope="col" className="px-4 py-3 font-bold">Isotope</th>
-                  <th scope="col" className="px-4 py-3 font-bold">Mesure initiale</th>
-                  <th scope="col" className="px-4 py-3 font-bold">Activité Résiduelle</th>
-                  <th scope="col" className="px-4 py-3 font-bold">Statut</th>
-                </tr>
-              </thead>
-              <tbody>
-                {visibleItems.map((w) => {
-                  const decay = evaluateDecay(w, now);
-                  const firstBlockingReason =
-                    w.status === 'stockage' && decay.blockingReasons.length > 0
-                      ? decay.blockingReasons[0]
-                      : null;
-                  const ready = readyIds.has(w.id);
-                  return (
-                    <tr key={w.id} className={`border-t border-subtle align-top ${ready ? 'bg-yellow-400/5' : ''}`}>
-                      <td className="px-4 py-4 font-mono text-xs text-primary">
-                        {w.registryNumber ?? w.id}
-                      </td>
-                      <td className="px-4 py-4 text-primary">
-                        <div className="font-bold">{w.radionuclide}</div>
-                        <div className="text-xs text-muted">
-                          T½ : {w.halfLife} h
-                        </div>
-                      </td>
-                      <td className="px-4 py-4 text-primary">
-                        <div className="font-bold">{w.initialActivity} MBq</div>
-                        <div className="text-xs text-muted">
-                          {w.measureDate
-                            ? new Date(w.measureDate).toLocaleString('fr-FR')
-                            : '—'}
-                        </div>
-                      </td>
-                      <td className="px-4 py-4 bg-surface-2">
-                        <div className="text-lg font-black italic tracking-tight text-accent">
-                          {formatNumber(decay.residualMBq, 4)} MBq
-                        </div>
-                        <div className="mt-1 space-y-0.5 text-xs text-muted">
-                          <div>Décroissance : {formatNumber(decay.decayPct, 1)}%</div>
-                          <div>
-                            Activité massique : {formatExponential(decay.massicBqPerG)} Bq/g
-                            {' '}(seuil {decay.clearanceLevelBqPerG ?? '—'} Bq/g)
-                          </div>
-                          <div>Périodes : {formatNumber(decay.halfLives, 1)}</div>
-                          <div>Date sortie estimée : {formatDate(decay.releaseDate)}</div>
-                        </div>
-                        {firstBlockingReason && (
-                          <div className="mt-2 text-xs text-faint">{firstBlockingReason}</div>
-                        )}
-                      </td>
-                      <td className="px-4 py-4">
-                        <StatusBadge status={w.status} />
-                        {ready && (
-                          <div className="mt-1 text-[11px] font-bold uppercase tracking-wide text-amber-500">Seuil atteint</div>
-                        )}
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </div>
+      <DataTable
+        columns={columns}
+        rows={rows}
+        getRowKey={(w) => w.id}
+        searchPlaceholder="Rechercher (ID, isotope)…"
+        pageSize={10}
+        emptyMessage="Aucun déchet en suivi de décroissance."
+        exportFileName="suivi_decroissance"
+        toolbar={
+          <button
+            type="button"
+            onClick={handleCheckThresholds}
+            disabled={isWorking}
+            className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-accent text-sm font-bold text-black disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            <Activity className="w-4 h-4" aria-hidden="true" />
+            {isWorking ? 'Vérification…' : 'Vérifier les Seuils'}
+          </button>
+        }
+      />
     </div>
   );
 }

@@ -8,7 +8,8 @@ import { createIncident, updateIncident, deleteIncident } from '@/lib/repositori
 import { writeLog } from '@/lib/repositories/logRepository';
 import { useToast } from '@/components/ui/Toast';
 import { FormSelect, FormInput, FormTextArea } from '@/components/ui/Form';
-import { IconButton, EmptyState, SectionHeader } from '@/components/ui/Primitives';
+import { IconButton, SectionHeader } from '@/components/ui/Primitives';
+import { DataTable, type Column } from '@/components/ui/DataTable';
 
 interface IncidentsViewProps {
   incidents: Incident[];
@@ -189,6 +190,124 @@ export function IncidentsView({ incidents, wasteItems, users, profile }: Inciden
     }
   };
 
+  // Tri par date décroissante par défaut (les incidents les plus récents en premier).
+  const sortedIncidents = useMemo<Incident[]>(
+    () => [...incidents].sort((a, b) => b.date.localeCompare(a.date)),
+    [incidents],
+  );
+
+  const wasteDisplayOf = (incident: Incident): string =>
+    incident.wasteId ? (wasteIdToLabel.get(incident.wasteId) ?? incident.wasteId) : 'N/A';
+
+  const columns = useMemo<Column<Incident>[]>(
+    () => [
+      {
+        key: 'id',
+        header: 'ID',
+        render: (incident) => (
+          <span className="font-mono text-sm text-accent font-bold">
+            {incident.registryNumber ?? incident.id}
+          </span>
+        ),
+        sortValue: (incident) => incident.registryNumber ?? incident.id,
+        searchValue: (incident) => incident.registryNumber ?? incident.id,
+      },
+      {
+        key: 'type',
+        header: 'Type',
+        render: (incident) => (
+          <span className="inline-flex items-center gap-1.5 px-3 py-1 text-xs font-black uppercase rounded-full bg-red-500/20 text-red-500">
+            <AlertTriangle className="w-3.5 h-3.5" aria-hidden="true" />
+            {incident.type}
+          </span>
+        ),
+        sortValue: (incident) => incident.type,
+        searchValue: (incident) => incident.type,
+      },
+      {
+        key: 'date',
+        header: 'Date',
+        render: (incident) => (
+          <span className="text-xs text-muted">{new Date(incident.date).toLocaleString('fr-FR')}</span>
+        ),
+        sortValue: (incident) => incident.date,
+        csvValue: (incident) => incident.date,
+      },
+      {
+        key: 'personnelFunction',
+        header: 'Implication',
+        render: (incident) => (
+          <span className="text-xs text-primary font-semibold">{incident.personnelFunction}</span>
+        ),
+        sortValue: (incident) => incident.personnelFunction,
+        searchValue: (incident) => incident.personnelFunction,
+      },
+      {
+        key: 'waste',
+        header: 'Déchet',
+        render: (incident) => (
+          <span className="text-xs text-primary font-mono">{wasteDisplayOf(incident)}</span>
+        ),
+        sortValue: (incident) => wasteDisplayOf(incident),
+        searchValue: (incident) => wasteDisplayOf(incident),
+      },
+      {
+        key: 'doses',
+        header: 'Doses (µSv/h)',
+        render: (incident) => (
+          <div className="text-xs leading-snug">
+            <div>
+              <span className="text-muted">Initiale&nbsp;: </span>
+              <span className="font-black italic text-red-500">{incident.doseRateBefore}</span>
+            </div>
+            <div>
+              <span className="text-muted">Finale&nbsp;: </span>
+              <span className="font-black italic text-green-600">{incident.doseRateAfter}</span>
+            </div>
+          </div>
+        ),
+        sortValue: (incident) => incident.doseRateAfter,
+        csvValue: (incident) => `Initiale ${incident.doseRateBefore} / Finale ${incident.doseRateAfter} µSv/h`,
+      },
+      {
+        key: 'correctiveActions',
+        header: 'Actions correctives',
+        render: (incident) => (
+          <p className="text-xs text-primary leading-snug whitespace-pre-wrap max-w-xs">
+            {incident.correctiveActions}
+          </p>
+        ),
+        searchValue: (incident) => incident.correctiveActions,
+      },
+      {
+        key: 'actions',
+        header: 'Actions',
+        align: 'right',
+        render: (incident) => {
+          const isDeleting = deletingId === incident.id;
+          return (
+            <div className="flex justify-end gap-2">
+              <IconButton onClick={() => openEdit(incident)} label="Modifier l'incident" variant="info">
+                <Edit2 className="w-4 h-4" aria-hidden="true" />
+              </IconButton>
+              <IconButton
+                onClick={() => {
+                  if (!isDeleting) void handleDelete(incident);
+                }}
+                label="Supprimer l'incident"
+                variant="danger"
+              >
+                <Trash2 className="w-4 h-4" aria-hidden="true" />
+              </IconButton>
+            </div>
+          );
+        },
+      },
+    ],
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [deletingId, wasteIdToLabel],
+  );
+
   return (
     <div className="space-y-6">
       {/* Bandeau protocole d'urgence */}
@@ -301,72 +420,15 @@ export function IncidentsView({ incidents, wasteItems, users, profile }: Inciden
       )}
 
       {/* Liste des incidents */}
-      {incidents.length === 0 ? (
-        <div className="bg-surface border border-subtle rounded-2xl">
-          <EmptyState message="Aucun incident enregistré. Espérons que cela dure." />
-        </div>
-      ) : (
-        <div className="space-y-4">
-          {incidents.map((incident) => {
-            const idLabel = incident.registryNumber ?? incident.id;
-            const wasteDisplay = incident.wasteId
-              ? (wasteIdToLabel.get(incident.wasteId) ?? incident.wasteId)
-              : 'N/A';
-            const isDeleting = deletingId === incident.id;
-            return (
-              <div key={incident.id} className="bg-surface border border-subtle rounded-2xl p-5 space-y-4">
-                <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
-                  <div className="space-y-2">
-                    <div className="flex flex-wrap items-center gap-3">
-                      <span className="font-mono text-sm text-accent font-bold">{idLabel}</span>
-                      <span className="inline-flex items-center gap-1.5 px-3 py-1 text-xs font-black uppercase rounded-full bg-red-500/20 text-red-500">
-                        <AlertTriangle className="w-3.5 h-3.5" aria-hidden="true" />
-                        {incident.type}
-                      </span>
-                      <span className="text-xs text-muted">
-                        {new Date(incident.date).toLocaleString('fr-FR')}
-                      </span>
-                    </div>
-                    <p className="text-xs text-muted">
-                      Implication : <span className="text-primary font-semibold">{incident.personnelFunction}</span>
-                    </p>
-                    <p className="text-xs text-muted">
-                      Déchet : <span className="text-primary font-mono">{wasteDisplay}</span>
-                    </p>
-                  </div>
-                  <div className="flex gap-2 shrink-0">
-                    <IconButton onClick={() => openEdit(incident)} label="Modifier l'incident" variant="info">
-                      <Edit2 className="w-4 h-4" aria-hidden="true" />
-                    </IconButton>
-                    <IconButton
-                      onClick={() => { if (!isDeleting) void handleDelete(incident); }}
-                      label="Supprimer l'incident"
-                      variant="danger"
-                    >
-                      <Trash2 className="w-4 h-4" aria-hidden="true" />
-                    </IconButton>
-                  </div>
-                </div>
-
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                  <div className="bg-surface-2 border border-subtle rounded-xl p-3">
-                    <div className="text-xs uppercase font-bold tracking-widest text-muted mb-1">Dose initiale</div>
-                    <div className="text-lg font-black italic text-red-500">{incident.doseRateBefore} µSv/h</div>
-                  </div>
-                  <div className="bg-surface-2 border border-subtle rounded-xl p-3">
-                    <div className="text-xs uppercase font-bold tracking-widest text-muted mb-1">Actions correctives</div>
-                    <p className="text-xs text-primary leading-snug whitespace-pre-wrap">{incident.correctiveActions}</p>
-                  </div>
-                  <div className="bg-surface-2 border border-subtle rounded-xl p-3">
-                    <div className="text-xs uppercase font-bold tracking-widest text-muted mb-1">Dose finale</div>
-                    <div className="text-lg font-black italic text-green-600">{incident.doseRateAfter} µSv/h</div>
-                  </div>
-                </div>
-              </div>
-            );
-          })}
-        </div>
-      )}
+      <DataTable
+        columns={columns}
+        rows={sortedIncidents}
+        getRowKey={(incident) => incident.id}
+        searchPlaceholder="Rechercher (ID, type, personne, déchet)…"
+        pageSize={10}
+        emptyMessage="Aucun incident enregistré. Espérons que cela dure."
+        exportFileName="incidents"
+      />
     </div>
   );
 }

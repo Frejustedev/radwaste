@@ -1,5 +1,8 @@
 export type WasteType = 'solide' | 'liquide' | 'biologique' | 'seringue' | 'flacon' | 'tubulure' | 'gants' | 'compresses' | 'autres';
-export type Radionuclide = 'Tc-99m' | 'I-131' | 'Lu-177' | 'Ga-68' | 'F-18' | 'Y-90' | 'autres';
+export type Radionuclide =
+  | 'Tc-99m' | 'F-18' | 'Ga-68' | 'I-131' | 'I-123' | 'I-125'
+  | 'Lu-177' | 'Y-90' | 'In-111' | 'Ga-67' | 'Tl-201' | 'Sm-153'
+  | 'Ra-223' | 'Re-186' | 'Sr-89' | 'Cr-51' | 'C-11' | 'autres';
 export type WasteStatus = 'stockage' | 'liberable' | 'elimine' | 'incident';
 
 export interface WasteItem {

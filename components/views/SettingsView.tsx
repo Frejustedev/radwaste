@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useRef, useState } from 'react';
+import React, { useMemo, useRef, useState } from 'react';
 import { Download, Upload, ScrollText, Palette } from 'lucide-react';
 import type { WasteItem, Incident, User, ActionLog } from '@/types';
 import { validateBackup, type ParsedBackup } from '@/lib/validation/schemas';
@@ -9,7 +9,8 @@ import { writeLog } from '@/lib/repositories/logRepository';
 import { useToast } from '@/components/ui/Toast';
 import { Modal } from '@/components/ui/Modal';
 import { FormInput } from '@/components/ui/Form';
-import { EmptyState, SectionHeader } from '@/components/ui/Primitives';
+import { SectionHeader } from '@/components/ui/Primitives';
+import { DataTable, type Column } from '@/components/ui/DataTable';
 
 interface SettingsViewProps {
   wasteItems: WasteItem[];
@@ -133,6 +134,37 @@ export function SettingsView({ wasteItems, incidents, users, actionLogs, profile
 
   const confirmReady = confirmText.trim() === CONFIRM_PHRASE;
 
+  // Colonnes du journal d'audit. Définies dans le rendu pour rester à jour avec actionLogs.
+  const logColumns: Column<ActionLog>[] = useMemo(
+    () => [
+      {
+        key: 'date',
+        header: 'Date',
+        render: (log) => <span className="font-mono text-xs text-faint">{formatLogDate(log.date)}</span>,
+        sortValue: (log) => log.date,
+        searchValue: (log) => formatLogDate(log.date),
+        csvValue: (log) => formatLogDate(log.date),
+        className: 'whitespace-nowrap',
+      },
+      {
+        key: 'userEmail',
+        header: 'Utilisateur',
+        render: (log) => <span className="font-mono text-xs text-accent">{log.userEmail}</span>,
+        sortValue: (log) => log.userEmail,
+        searchValue: (log) => log.userEmail,
+        csvValue: (log) => log.userEmail,
+      },
+      {
+        key: 'action',
+        header: 'Action',
+        render: (log) => <span className="font-mono text-xs text-muted break-words">{log.action}</span>,
+        searchValue: (log) => log.action,
+        csvValue: (log) => log.action,
+      },
+    ],
+    [],
+  );
+
   return (
     <div className="space-y-4">
       <SectionHeader
@@ -194,21 +226,15 @@ export function SettingsView({ wasteItems, incidents, users, actionLogs, profile
             <span className="text-accent" aria-hidden="true"><ScrollText className="w-5 h-5" /></span>
             <h4 className="font-black italic uppercase text-primary text-sm">Journal d'actions (Logs)</h4>
           </div>
-          {actionLogs.length === 0 ? (
-            <EmptyState message="Aucun log" />
-          ) : (
-            <div className="max-h-96 overflow-y-auto rounded-lg border border-subtle bg-surface-2">
-              <ul className="divide-y divide-subtle">
-                {actionLogs.map((log) => (
-                  <li key={log.id} className="px-4 py-2 font-mono text-xs text-primary flex flex-col sm:flex-row sm:items-baseline sm:gap-2">
-                    <span className="text-faint shrink-0">{formatLogDate(log.date)}</span>
-                    <span className="text-accent shrink-0">{log.userEmail}</span>
-                    <span className="text-muted break-words">{log.action}</span>
-                  </li>
-                ))}
-              </ul>
-            </div>
-          )}
+          <DataTable
+            columns={logColumns}
+            rows={actionLogs}
+            getRowKey={(log) => log.id}
+            searchPlaceholder="Rechercher dans le journal…"
+            pageSize={15}
+            emptyMessage="Aucun log"
+            exportFileName="journal_audit"
+          />
         </div>
 
         {/* Thème (note, pas de sélecteur inerte) */}

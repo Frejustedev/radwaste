@@ -10,6 +10,7 @@ import { auth, logout } from '@/lib/firebase';
 import { useRadwasteData } from '@/lib/hooks/useRadwasteData';
 import { useToast } from '@/components/ui/Toast';
 import { NavButton } from '@/components/ui/Primitives';
+import { Logo } from '@/components/ui/Logo';
 import { canManageUsers, canManageSettings } from '@/lib/permissions';
 import { DashboardView } from '@/components/views/DashboardView';
 import { IdentificationView } from '@/components/views/IdentificationView';
@@ -92,7 +93,7 @@ export default function NuclearWasteApp() {
     return (
       <div data-theme={theme} className="h-screen bg-app text-primary flex items-center justify-center font-sans">
         <div className="w-full max-w-sm bg-surface p-8 rounded-2xl border border-subtle flex flex-col items-center">
-          <div className="w-16 h-16 bg-yellow-400 rounded-xl flex items-center justify-center text-black font-black italic text-3xl mb-6" aria-hidden="true">☢</div>
+          <Logo size={64} className="mb-6" />
           <h1 className="text-2xl font-black uppercase tracking-tighter mb-2 text-primary">RadWaste <span className="text-accent">Pro</span></h1>
           <p className="text-xs text-faint uppercase tracking-widest font-bold text-center mb-6">Authentification requise</p>
           <form className="w-full space-y-4" onSubmit={handleLogin}>
@@ -142,7 +143,7 @@ export default function NuclearWasteApp() {
           <button className="md:hidden p-2 rounded-lg hover:bg-black/5 dark:hover:bg-white/5" onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)} aria-label={isMobileMenuOpen ? 'Fermer le menu' : 'Ouvrir le menu'} aria-expanded={isMobileMenuOpen}>
             {isMobileMenuOpen ? <X className="w-5 h-5" aria-hidden="true" /> : <Menu className="w-5 h-5" aria-hidden="true" />}
           </button>
-          <div className="w-8 h-8 rounded flex items-center justify-center font-black italic bg-yellow-400 text-black" aria-hidden="true">☢</div>
+          <Logo size={32} />
           <h1 className="text-xl font-black uppercase tracking-tighter">RadWaste <span className="text-accent">Pro</span></h1>
         </div>
         <div className="flex items-center gap-4 md:gap-6">
@@ -208,7 +209,7 @@ export default function NuclearWasteApp() {
             <header className="mb-8 shrink-0 print:hidden">
               <h2 className="text-2xl font-black italic text-primary tracking-tighter uppercase">{TAB_TITLES[activeTab]}</h2>
             </header>
-            {activeTab === 'dashboard' && <DashboardView wasteItems={wasteItems} incidents={incidents} onNavigate={(t) => go(t as Tab)} />}
+            {activeTab === 'dashboard' && <DashboardView wasteItems={wasteItems} incidents={incidents} onNavigate={(t) => go(t as Tab)} theme={theme} />}
             {activeTab === 'identification' && <IdentificationView wasteItems={wasteItems} users={users} profile={profile} />}
             {activeTab === 'decroissance' && <DecroissanceView wasteItems={wasteItems} profile={profile} />}
             {activeTab === 'sortie' && <SortieView wasteItems={wasteItems} users={users} profile={profile} />}

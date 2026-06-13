@@ -21,6 +21,8 @@ const MONTH_LABELS = [
   'Juillet', 'Août', 'Septembre', 'Octobre', 'Novembre', 'Décembre',
 ];
 
+const DEFAULT_FACILITY = 'Service de Médecine Nucléaire';
+
 /** Formate une date ISO en date locale fr-FR, ou un repli si absente/invalide. */
 function formatDateFr(iso: string | undefined, fallback = '-'): string {
   if (!iso) return fallback;
@@ -34,6 +36,7 @@ export function ReportsView({ wasteItems }: ReportsViewProps) {
   const today = useMemo(() => new Date(), []);
   const [year, setYear] = useState<number>(today.getFullYear());
   const [month, setMonth] = useState<number>(today.getMonth()); // 0-11
+  const [facility, setFacility] = useState<string>(DEFAULT_FACILITY);
 
   useEffect(() => {
     const handleAfterPrint = (): void => setPrintReport(null);
@@ -45,6 +48,9 @@ export function ReportsView({ wasteItems }: ReportsViewProps) {
     setPrintReport(name);
     setTimeout(() => window.print(), 100);
   };
+
+  // En-tête réutilisé : l'établissement saisi, ou la valeur par défaut si vidé.
+  const facilityName = facility.trim() || DEFAULT_FACILITY;
 
   // Années disponibles : celles présentes dans les éliminations + année courante.
   const years = useMemo(() => {
@@ -85,6 +91,22 @@ export function ReportsView({ wasteItems }: ReportsViewProps) {
         />
       </div>
 
+      {/* Établissement — réutilisé dans l'en-tête de chaque rapport imprimé */}
+      <div className="print:hidden">
+        <label htmlFor="report-facility" className="block text-[11px] uppercase font-bold tracking-widest text-muted mb-1">
+          Établissement
+        </label>
+        <input
+          id="report-facility"
+          type="text"
+          value={facility}
+          onChange={(e) => setFacility(e.target.value)}
+          placeholder={DEFAULT_FACILITY}
+          className="w-full max-w-md px-3 py-2 bg-surface-2 border border-subtle rounded-lg text-primary text-sm placeholder:text-faint"
+        />
+        <p className="mt-1 text-xs text-faint">Apparaît dans l&apos;en-tête de tous les rapports imprimés.</p>
+      </div>
+
       {/* Sélecteur de période — pour les rapports mensuel et annuel */}
       <div className="flex flex-wrap items-end gap-4 print:hidden">
         <div>
@@ -122,10 +144,10 @@ export function ReportsView({ wasteItems }: ReportsViewProps) {
       {/* Zone d'impression */}
       {printReport && (
         <div className="min-h-screen bg-white text-black">
-          {printReport === 'REGISTRE' && <PrintRegistre wasteItems={wasteItems} />}
-          {printReport === 'MENSUEL' && <PrintMensuel items={monthlyItems} periodLabel={`${MONTH_LABELS[month]} ${year}`} />}
-          {printReport === 'ANNUEL' && <PrintAnnuel items={annualItems} year={year} />}
-          {printReport === 'INVENTAIRE' && <PrintInventaire wasteItems={wasteItems} />}
+          {printReport === 'REGISTRE' && <PrintRegistre wasteItems={wasteItems} facility={facilityName} />}
+          {printReport === 'MENSUEL' && <PrintMensuel items={monthlyItems} periodLabel={`${MONTH_LABELS[month]} ${year}`} facility={facilityName} />}
+          {printReport === 'ANNUEL' && <PrintAnnuel items={annualItems} year={year} facility={facilityName} />}
+          {printReport === 'INVENTAIRE' && <PrintInventaire wasteItems={wasteItems} facility={facilityName} />}
         </div>
       )}
     </div>
@@ -146,13 +168,41 @@ function ReportCard({ onClick, icon, title, description }: { onClick: () => void
   );
 }
 
-/** En-tête commun aux documents imprimés. */
-function PrintHeader({ title, subtitle }: { title: string; subtitle?: string }) {
+/** Trèfle radioactif EN NOIR (carré bordé), pour rester lisible en impression N&B. */
+function PrintTrefoil({ size = 44 }: { size?: number }) {
+  return (
+    <span
+      className="inline-flex shrink-0 items-center justify-center rounded border border-black text-black"
+      style={{ width: size, height: size }}
+      aria-hidden="true"
+    >
+      <svg viewBox="0 0 100 100" width={size * 0.66} height={size * 0.66} fill="currentColor" role="img">
+        <circle cx="50" cy="50" r="9" />
+        {[0, 120, 240].map((angle) => (
+          <path
+            key={angle}
+            d="M50 50 L67.3 80 A35 35 0 0 0 32.7 80 Z"
+            transform={`rotate(${angle} 50 50)`}
+          />
+        ))}
+      </svg>
+    </span>
+  );
+}
+
+/** En-tête commun aux documents imprimés : logo N&B, établissement, titre et date de génération. */
+function PrintHeader({ title, subtitle, facility }: { title: string; subtitle?: string; facility: string }) {
   return (
     <div className="mb-6 border-b border-gray-400 pb-4">
-      <h1 className="text-xl font-bold text-black">{title}</h1>
-      {subtitle && <p className="mt-1 text-sm font-semibold text-black">{subtitle}</p>}
-      <p className="mt-1 text-xs text-black">Document généré le {new Date().toLocaleString('fr-FR')}</p>
+      <div className="flex items-start gap-3">
+        <PrintTrefoil />
+        <div className="min-w-0">
+          <p className="text-sm font-bold uppercase tracking-wide text-black">{facility}</p>
+          <h1 className="mt-0.5 text-xl font-bold text-black">{title}</h1>
+          {subtitle && <p className="mt-1 text-sm font-semibold text-black">{subtitle}</p>}
+          <p className="mt-1 text-xs text-black">Document généré le {new Date().toLocaleString('fr-FR')}</p>
+        </div>
+      </div>
     </div>
   );
 }
@@ -170,10 +220,10 @@ function PrintSignature() {
 const TH_CLASS = 'border border-gray-400 px-2 py-1 text-left text-xs font-semibold text-black';
 const TD_CLASS = 'border border-gray-400 px-2 py-1 text-xs text-black';
 
-function PrintRegistre({ wasteItems }: { wasteItems: WasteItem[] }) {
+function PrintRegistre({ wasteItems, facility }: { wasteItems: WasteItem[]; facility: string }) {
   return (
     <div className="p-8">
-      <PrintHeader title="Registre Réglementaire des Déchets Radioactifs" />
+      <PrintHeader title="Registre Réglementaire des Déchets Radioactifs" facility={facility} />
       {wasteItems.length === 0 ? (
         <p className="text-xs text-black">Aucun déchet enregistré.</p>
       ) : (
@@ -207,11 +257,11 @@ function PrintRegistre({ wasteItems }: { wasteItems: WasteItem[] }) {
   );
 }
 
-function PrintInventaire({ wasteItems }: { wasteItems: WasteItem[] }) {
+function PrintInventaire({ wasteItems, facility }: { wasteItems: WasteItem[]; facility: string }) {
   const stock = wasteItems.filter((w) => w.status === 'stockage' || w.status === 'liberable');
   return (
     <div className="p-8">
-      <PrintHeader title="Inventaire du Stock de Déchets Radioactifs" />
+      <PrintHeader title="Inventaire du Stock de Déchets Radioactifs" facility={facility} />
       <p className="mb-4 text-xs text-black">
         Total en stock : <span className="font-semibold">{stock.length}</span> déchet(s).
       </p>
@@ -282,10 +332,10 @@ function EliminationTable({ items }: { items: WasteItem[] }) {
   );
 }
 
-function PrintMensuel({ items, periodLabel }: { items: WasteItem[]; periodLabel: string }) {
+function PrintMensuel({ items, periodLabel, facility }: { items: WasteItem[]; periodLabel: string; facility: string }) {
   return (
     <div className="p-8">
-      <PrintHeader title="Rapport Mensuel d'Élimination" subtitle={`Période : ${periodLabel}`} />
+      <PrintHeader title="Rapport Mensuel d'Élimination" subtitle={`Période : ${periodLabel}`} facility={facility} />
       <p className="mb-4 text-xs text-black">
         Total éliminé sur la période : <span className="font-semibold">{items.length}</span> déchet(s).
       </p>
@@ -295,7 +345,7 @@ function PrintMensuel({ items, periodLabel }: { items: WasteItem[]; periodLabel:
   );
 }
 
-function PrintAnnuel({ items, year }: { items: WasteItem[]; year: number }) {
+function PrintAnnuel({ items, year, facility }: { items: WasteItem[]; year: number; facility: string }) {
   // Synthèse par radionucléide : nombre éliminé + activité initiale cumulée.
   const summary = new Map<string, { count: number; totalActivity: number }>();
   for (const w of items) {
@@ -308,7 +358,7 @@ function PrintAnnuel({ items, year }: { items: WasteItem[]; year: number }) {
 
   return (
     <div className="p-8">
-      <PrintHeader title="Rapport Annuel des Déchets Radioactifs" subtitle={`Année : ${year}`} />
+      <PrintHeader title="Rapport Annuel des Déchets Radioactifs" subtitle={`Année : ${year}`} facility={facility} />
       <p className="mb-4 text-xs text-black">
         Total éliminé sur l&apos;année : <span className="font-semibold">{items.length}</span> déchet(s).
       </p>

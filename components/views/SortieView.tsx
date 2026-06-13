@@ -10,6 +10,7 @@ import { useToast } from '@/components/ui/Toast';
 import { Modal } from '@/components/ui/Modal';
 import { FormInput, FormSelect } from '@/components/ui/Form';
 import { IconButton, StatusBadge, EmptyState, SectionHeader } from '@/components/ui/Primitives';
+import { DataTable, type Column } from '@/components/ui/DataTable';
 
 interface SortieViewProps {
   wasteItems: WasteItem[];
@@ -122,6 +123,89 @@ export function SortieView({ wasteItems, users, profile }: SortieViewProps) {
 
   const controlledIdentifier = controlled ? (controlled.registryNumber ?? controlled.id) : '';
 
+  const columns = useMemo<Column<WasteItem>[]>(
+    () => [
+      {
+        key: 'identifier',
+        header: 'Identifiant',
+        searchValue: (w) => `${w.registryNumber ?? w.id} ${w.type}`,
+        sortValue: (w) => `${w.registryNumber ?? w.id}`,
+        csvValue: (w) => `${w.registryNumber ?? w.id} (${w.type})`,
+        render: (w) => {
+          const identifier = w.registryNumber ?? w.id;
+          return (
+            <>
+              <div className="font-mono text-primary">{identifier}</div>
+              <div className="text-xs text-muted capitalize">{w.type}</div>
+            </>
+          );
+        },
+      },
+      {
+        key: 'residual',
+        header: 'Activité résiduelle',
+        sortValue: (w) => residualActivityMBq(w) ?? -1,
+        csvValue: (w) => {
+          const residual = residualActivityMBq(w);
+          return residual !== null ? `${residual.toFixed(4)} MBq` : '—';
+        },
+        render: (w) => {
+          const residual = residualActivityMBq(w);
+          return (
+            <span className="text-primary">
+              {residual !== null ? `${residual.toFixed(4)} MBq` : '—'}
+            </span>
+          );
+        },
+      },
+      {
+        key: 'status',
+        header: 'Statut',
+        sortValue: (w) => w.status,
+        csvValue: (w) => w.status,
+        render: (w) => <StatusBadge status={w.status} />,
+      },
+      {
+        key: 'control',
+        header: 'Contrôle / Action',
+        align: 'right',
+        csvValue: (w) => {
+          if (w.status === 'liberable') return 'À contrôler';
+          return [
+            `Contrôlé le ${formatIsoDate(w.eliminationDate)}`,
+            `Mode : ${w.eliminationMode ?? '—'}`,
+            `Conformité : ${w.exitConformity ? 'Oui' : 'Non/Dérogation'}`,
+            `Signé : ${w.exitSignedBy ?? w.exitController ?? '—'}`,
+          ].join(' | ');
+        },
+        render: (w) => {
+          const identifier = w.registryNumber ?? w.id;
+          return w.status === 'liberable' ? (
+            <IconButton
+              onClick={() => openControl(w)}
+              label={`Contrôle de sortie du déchet ${identifier}`}
+              variant="info"
+            >
+              <span className="flex items-center gap-1 text-xs font-bold">
+                <ClipboardCheck className="w-4 h-4" aria-hidden="true" />
+                Contrôle →
+              </span>
+            </IconButton>
+          ) : (
+            <div className="text-xs text-muted space-y-0.5">
+              <div>Contrôlé le {formatIsoDate(w.eliminationDate)}</div>
+              <div>Mode : {w.eliminationMode ?? '—'}</div>
+              <div>Conformité : {w.exitConformity ? 'Oui' : 'Non/Dérogation'}</div>
+              <div>Signé : {w.exitSignedBy ?? w.exitController ?? '—'}</div>
+            </div>
+          );
+        },
+      },
+    ],
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [],
+  );
+
   return (
     <div className="space-y-4">
       <SectionHeader
@@ -129,65 +213,21 @@ export function SortieView({ wasteItems, users, profile }: SortieViewProps) {
         description="Contrôle radiologique de sortie et traçabilité de l'élimination des déchets libérables."
       />
 
-      <div className="bg-surface border border-subtle rounded-2xl overflow-hidden">
-        {rows.length === 0 ? (
+      {rows.length === 0 ? (
+        <div className="bg-surface border border-subtle rounded-2xl overflow-hidden">
           <EmptyState message="Aucun déchet libérable ou éliminé à afficher." />
-        ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="text-left text-muted border-b border-subtle">
-                  <th scope="col" className="px-4 py-3 font-bold uppercase text-xs tracking-wider">Identifiant</th>
-                  <th scope="col" className="px-4 py-3 font-bold uppercase text-xs tracking-wider">Activité résiduelle</th>
-                  <th scope="col" className="px-4 py-3 font-bold uppercase text-xs tracking-wider">Statut</th>
-                  <th scope="col" className="px-4 py-3 font-bold uppercase text-xs tracking-wider">Contrôle / Action</th>
-                </tr>
-              </thead>
-              <tbody>
-                {rows.map((w) => {
-                  const residual = residualActivityMBq(w);
-                  const identifier = w.registryNumber ?? w.id;
-                  return (
-                    <tr key={w.id} className="border-b border-subtle last:border-0">
-                      <td className="px-4 py-3 align-top">
-                        <div className="font-mono text-primary">{identifier}</div>
-                        <div className="text-xs text-muted capitalize">{w.type}</div>
-                      </td>
-                      <td className="px-4 py-3 align-top text-primary">
-                        {residual !== null ? `${residual.toFixed(4)} MBq` : '—'}
-                      </td>
-                      <td className="px-4 py-3 align-top">
-                        <StatusBadge status={w.status} />
-                      </td>
-                      <td className="px-4 py-3 align-top">
-                        {w.status === 'liberable' ? (
-                          <IconButton
-                            onClick={() => openControl(w)}
-                            label={`Contrôle de sortie du déchet ${identifier}`}
-                            variant="info"
-                          >
-                            <span className="flex items-center gap-1 text-xs font-bold">
-                              <ClipboardCheck className="w-4 h-4" aria-hidden="true" />
-                              Contrôle →
-                            </span>
-                          </IconButton>
-                        ) : (
-                          <div className="text-xs text-muted space-y-0.5">
-                            <div>Contrôlé le {formatIsoDate(w.eliminationDate)}</div>
-                            <div>Mode : {w.eliminationMode ?? '—'}</div>
-                            <div>Conformité : {w.exitConformity ? 'Oui' : 'Non/Dérogation'}</div>
-                            <div>Signé : {w.exitSignedBy ?? w.exitController ?? '—'}</div>
-                          </div>
-                        )}
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </div>
+        </div>
+      ) : (
+        <DataTable
+          columns={columns}
+          rows={rows}
+          getRowKey={(w) => w.id}
+          searchPlaceholder="Rechercher (ID, type)…"
+          pageSize={10}
+          emptyMessage="Aucun déchet libérable ou éliminé à afficher."
+          exportFileName="sorties_eliminations"
+        />
+      )}
 
       {controlled && (
         <Modal

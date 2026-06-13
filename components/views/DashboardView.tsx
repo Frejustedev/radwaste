@@ -17,18 +17,61 @@ import {
 import { Plus, ClipboardCheck, FileText, Package, Activity, CheckCircle2, AlertTriangle, ShieldAlert } from 'lucide-react';
 import type { WasteItem, Incident } from '@/types';
 import { residualActivityMBq } from '@/lib/physics/decay';
-import { KPICard, StatusBadge, EmptyState } from '@/components/ui/Primitives';
+import { KPICard, StatusBadge } from '@/components/ui/Primitives';
+import { DataTable, type Column } from '@/components/ui/DataTable';
 
 interface DashboardViewProps {
   wasteItems: WasteItem[];
   incidents: Incident[];
   onNavigate: (tab: string) => void;
+  theme: 'dark' | 'light';
 }
 
+// Palette camembert statut : lisible sur les deux thèmes.
 const STATUS_COLORS = ['#FACC15', '#22C55E', '#64748B'];
-const AXIS_STROKE = '#64748b';
 
-export function DashboardView({ wasteItems, incidents, onNavigate }: DashboardViewProps) {
+interface ChartPalette {
+  grid: string;
+  axis: string;
+  barFill: string;
+  tooltip: {
+    backgroundColor: string;
+    border: string;
+    color: string;
+    borderRadius: number;
+  };
+}
+
+function getChartPalette(theme: 'dark' | 'light'): ChartPalette {
+  if (theme === 'light') {
+    return {
+      grid: '#cbd5e1',
+      axis: '#475569',
+      barFill: '#CA8A04',
+      tooltip: {
+        backgroundColor: '#FFFFFF',
+        border: '1px solid #cbd5e1',
+        color: '#0f172a',
+        borderRadius: 8,
+      },
+    };
+  }
+  return {
+    grid: '#334155',
+    axis: '#64748b',
+    barFill: '#FACC15',
+    tooltip: {
+      backgroundColor: '#0D0E12',
+      border: '1px solid #334155',
+      color: '#F8FAFC',
+      borderRadius: 8,
+    },
+  };
+}
+
+export function DashboardView({ wasteItems, incidents, onNavigate, theme }: DashboardViewProps) {
+  const palette = useMemo(() => getChartPalette(theme), [theme]);
+
   const stockageCount = useMemo(
     () => wasteItems.filter((w) => w.status === 'stockage').length,
     [wasteItems],
@@ -91,6 +134,50 @@ export function DashboardView({ wasteItems, incidents, onNavigate }: DashboardVi
     const d = new Date(iso);
     return Number.isNaN(d.getTime()) ? '—' : d.toLocaleDateString('fr-FR');
   };
+
+  const releasableColumns = useMemo<Column<WasteItem>[]>(
+    () => [
+      {
+        key: 'id',
+        header: 'ID',
+        render: (row) => (
+          <span className="font-mono text-accent">{row.registryNumber ?? row.id}</span>
+        ),
+        searchValue: (row) => row.registryNumber ?? row.id,
+        sortValue: (row) => row.registryNumber ?? row.id,
+      },
+      {
+        key: 'type',
+        header: 'Type',
+        render: (row) => <span className="text-primary">{row.type}</span>,
+        searchValue: (row) => row.type,
+        sortValue: (row) => row.type,
+      },
+      {
+        key: 'radionuclide',
+        header: 'Radionucléide',
+        render: (row) => <span className="text-primary">{row.radionuclide}</span>,
+        searchValue: (row) => row.radionuclide,
+      },
+      {
+        key: 'storageEntryDate',
+        header: "Date d'entrée",
+        render: (row) => <span className="text-muted">{formatDate(row.storageEntryDate)}</span>,
+        sortValue: (row) => {
+          const t = new Date(row.storageEntryDate).getTime();
+          return Number.isNaN(t) ? 0 : t;
+        },
+        csvValue: (row) => formatDate(row.storageEntryDate),
+      },
+      {
+        key: 'status',
+        header: 'Statut',
+        render: () => <StatusBadge status="liberable" />,
+        csvValue: () => 'liberable',
+      },
+    ],
+    [],
+  );
 
   return (
     <div className="space-y-6">
@@ -174,7 +261,7 @@ export function DashboardView({ wasteItems, incidents, onNavigate }: DashboardVi
                     <Cell key={entry.name} fill={STATUS_COLORS[index % STATUS_COLORS.length]} />
                   ))}
                 </Pie>
-                <RechartsTooltip />
+                <RechartsTooltip contentStyle={palette.tooltip} itemStyle={{ color: palette.tooltip.color }} />
                 <Legend />
               </PieChart>
             </ResponsiveContainer>
@@ -186,11 +273,15 @@ export function DashboardView({ wasteItems, incidents, onNavigate }: DashboardVi
           <div className="h-72 w-full">
             <ResponsiveContainer width="100%" height="100%">
               <BarChart data={radionuclideChartData}>
-                <CartesianGrid strokeDasharray="3 3" stroke={AXIS_STROKE} />
-                <XAxis dataKey="name" stroke={AXIS_STROKE} />
-                <YAxis allowDecimals={false} stroke={AXIS_STROKE} />
-                <RechartsTooltip />
-                <Bar dataKey="count" fill="#FACC15" />
+                <CartesianGrid strokeDasharray="3 3" stroke={palette.grid} />
+                <XAxis dataKey="name" stroke={palette.axis} />
+                <YAxis allowDecimals={false} stroke={palette.axis} />
+                <RechartsTooltip
+                  contentStyle={palette.tooltip}
+                  itemStyle={{ color: palette.tooltip.color }}
+                  cursor={{ fill: theme === 'light' ? 'rgba(203,213,225,0.3)' : 'rgba(51,65,85,0.3)' }}
+                />
+                <Bar dataKey="count" fill={palette.barFill} />
               </BarChart>
             </ResponsiveContainer>
           </div>
@@ -200,36 +291,15 @@ export function DashboardView({ wasteItems, incidents, onNavigate }: DashboardVi
       {/* Table des déchets candidats à la libération */}
       <div>
         <h3 className="font-bold text-primary uppercase text-sm mb-3">Déchets candidats à la libération</h3>
-        <div className="bg-surface border border-subtle rounded-2xl overflow-hidden">
-          {releasableItems.length === 0 ? (
-            <EmptyState message="Aucun déchet candidat à la libération pour le moment." />
-          ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="border-b border-subtle text-left">
-                    <th className="px-4 py-3 font-bold text-muted uppercase text-xs">ID</th>
-                    <th className="px-4 py-3 font-bold text-muted uppercase text-xs">Type</th>
-                    <th className="px-4 py-3 font-bold text-muted uppercase text-xs">Radionucléide</th>
-                    <th className="px-4 py-3 font-bold text-muted uppercase text-xs">Date d&apos;entrée</th>
-                    <th className="px-4 py-3 font-bold text-muted uppercase text-xs">Statut</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {releasableItems.map((item) => (
-                    <tr key={item.id} className="border-b border-subtle last:border-0">
-                      <td className="px-4 py-3 font-mono text-accent">{item.registryNumber ?? item.id}</td>
-                      <td className="px-4 py-3 text-primary">{item.type}</td>
-                      <td className="px-4 py-3 text-primary">{item.radionuclide}</td>
-                      <td className="px-4 py-3 text-muted">{formatDate(item.storageEntryDate)}</td>
-                      <td className="px-4 py-3"><StatusBadge status="liberable" /></td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </div>
+        <DataTable
+          columns={releasableColumns}
+          rows={releasableItems}
+          getRowKey={(r) => r.id}
+          searchPlaceholder="Rechercher un déchet libérable…"
+          pageSize={5}
+          emptyMessage="Aucun déchet candidat à la libération pour le moment."
+          exportFileName="dechets_liberables"
+        />
       </div>
     </div>
   );

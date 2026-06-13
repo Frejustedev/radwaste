@@ -55,3 +55,16 @@
   outline: 2px solid var(--accent);
   outline-offset: 2px;
 }
+
+/* Chiffres alignés pour les données numériques (activités, doses, dates) */
+.tabular {
+  font-variant-numeric: tabular-nums;
+}
+
+/* Impression : tableaux de rapports paginés proprement, en-têtes répétés */
+@media print {
+  table { page-break-inside: auto; }
+  tr { page-break-inside: avoid; page-break-after: auto; }
+  thead { display: table-header-group; }
+  @page { margin: 1.5cm; }
+}
