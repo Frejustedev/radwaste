@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useMemo, useRef, useState } from 'react';
-import { Download, Upload, ScrollText, Palette, SlidersHorizontal, X, Plus } from 'lucide-react';
+import { Download, Upload, ScrollText, Palette, SlidersHorizontal, X, Plus, ExternalLink } from 'lucide-react';
 import type { WasteItem, Incident, User, ActionLog, AppSettings } from '@/types';
 import { validateBackup, type ParsedBackup } from '@/lib/validation/schemas';
 import { buildBackup, restoreBackup } from '@/lib/repositories/backupRepository';
@@ -382,6 +382,35 @@ export function SettingsView({ wasteItems, incidents, users, actionLogs, profile
           <p className="text-xs text-muted">
             Le thème (clair/sombre) se règle depuis l'icône en haut à droite.
           </p>
+        </div>
+
+        {/* Liens utiles */}
+        <div className="bg-surface border border-subtle rounded-2xl p-6 space-y-4 lg:col-span-2">
+          <div className="flex items-center gap-3">
+            <span className="text-accent" aria-hidden="true"><ExternalLink className="w-5 h-5" /></span>
+            <h4 className="font-black italic uppercase text-primary text-sm">Liens utiles</h4>
+          </div>
+          <p className="text-xs text-muted">Accès rapide aux sites IMENA.</p>
+          <div className="flex flex-wrap gap-3">
+            <a
+              href="https://imena-gest.net"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-bold bg-surface-2 border border-subtle text-primary hover:border-accent"
+            >
+              <ExternalLink className="w-4 h-4" aria-hidden="true" />
+              imena-gest.net
+            </a>
+            <a
+              href="https://imena.ci"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-bold bg-surface-2 border border-subtle text-primary hover:border-accent"
+            >
+              <ExternalLink className="w-4 h-4" aria-hidden="true" />
+              imena.ci
+            </a>
+          </div>
         </div>
       </div>
 

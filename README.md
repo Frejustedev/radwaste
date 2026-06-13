@@ -1,4 +1,4 @@
-# RadWaste Pro
+# RadWaste IMENA
 
 Application de gestion des déchets radioactifs en médecine nucléaire : identification & stockage,
 suivi de décroissance, contrôle de sortie & élimination, registre d'incidents, rapports réglementaires.

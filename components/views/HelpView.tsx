@@ -4,7 +4,7 @@ import { LifeBuoy, PackageCheck, Activity, ClipboardCheck, Mail } from 'lucide-r
 import { SectionHeader } from '@/components/ui/Primitives';
 
 /**
- * Vue d'aide & documentation de RadWaste Pro.
+ * Vue d'aide & documentation de RadWaste IMENA.
  * Contenu statique uniquement — aucune mutation, aucune prop.
  */
 export function HelpView() {

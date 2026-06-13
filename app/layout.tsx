@@ -3,7 +3,7 @@ import './globals.css';
 import { ToastProvider } from '@/components/ui/Toast';
 
 export const metadata: Metadata = {
-  title: 'RadWaste Pro — Gestion des déchets radioactifs',
+  title: 'RadWaste IMENA — Gestion des déchets radioactifs',
   description: 'Système de supervision des déchets radioactifs en médecine nucléaire.',
 };
 

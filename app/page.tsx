@@ -94,7 +94,7 @@ export default function NuclearWasteApp() {
       <div data-theme={theme} className="h-screen bg-app text-primary flex items-center justify-center font-sans">
         <div className="w-full max-w-sm bg-surface p-8 rounded-2xl border border-subtle flex flex-col items-center">
           <Logo size={64} className="mb-6" />
-          <h1 className="text-2xl font-black uppercase tracking-tighter mb-2 text-primary">RadWaste <span className="text-accent">Pro</span></h1>
+          <h1 className="text-2xl font-black uppercase tracking-tighter mb-2 text-primary">RadWaste <span className="text-accent">IMENA</span></h1>
           <p className="text-xs text-faint uppercase tracking-widest font-bold text-center mb-6">Authentification requise</p>
           <form className="w-full space-y-4" onSubmit={handleLogin}>
             <label className="sr-only" htmlFor="login-email">Adresse email</label>
@@ -144,7 +144,7 @@ export default function NuclearWasteApp() {
             {isMobileMenuOpen ? <X className="w-5 h-5" aria-hidden="true" /> : <Menu className="w-5 h-5" aria-hidden="true" />}
           </button>
           <Logo size={32} />
-          <h1 className="text-xl font-black uppercase tracking-tighter">RadWaste <span className="text-accent">Pro</span></h1>
+          <h1 className="text-xl font-black uppercase tracking-tighter">RadWaste <span className="text-accent">IMENA</span></h1>
         </div>
         <div className="flex items-center gap-4 md:gap-6">
           <button onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')} className="p-2 rounded-full text-muted hover:text-primary hover:bg-black/5 dark:hover:bg-white/10" aria-label={theme === 'dark' ? 'Activer le thème clair' : 'Activer le thème sombre'}>
