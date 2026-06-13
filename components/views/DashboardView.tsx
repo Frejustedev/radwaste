@@ -130,7 +130,8 @@ export function DashboardView({ wasteItems, incidents, onNavigate, theme }: Dash
     [wasteItems],
   );
 
-  const formatDate = (iso: string): string => {
+  const formatDate = (iso?: string): string => {
+    if (!iso) return '—';
     const d = new Date(iso);
     return Number.isNaN(d.getTime()) ? '—' : d.toLocaleDateString('fr-FR');
   };
@@ -164,7 +165,7 @@ export function DashboardView({ wasteItems, incidents, onNavigate, theme }: Dash
         header: "Date d'entrée",
         render: (row) => <span className="text-muted">{formatDate(row.storageEntryDate)}</span>,
         sortValue: (row) => {
-          const t = new Date(row.storageEntryDate).getTime();
+          const t = row.storageEntryDate ? new Date(row.storageEntryDate).getTime() : NaN;
           return Number.isNaN(t) ? 0 : t;
         },
         csvValue: (row) => formatDate(row.storageEntryDate),

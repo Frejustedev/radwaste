@@ -1,10 +1,11 @@
 'use client';
 
 import React, { useMemo, useRef, useState } from 'react';
-import { Download, Upload, ScrollText, Palette } from 'lucide-react';
-import type { WasteItem, Incident, User, ActionLog } from '@/types';
+import { Download, Upload, ScrollText, Palette, SlidersHorizontal, X, Plus } from 'lucide-react';
+import type { WasteItem, Incident, User, ActionLog, AppSettings } from '@/types';
 import { validateBackup, type ParsedBackup } from '@/lib/validation/schemas';
 import { buildBackup, restoreBackup } from '@/lib/repositories/backupRepository';
+import { saveSettings } from '@/lib/repositories/settingsRepository';
 import { writeLog } from '@/lib/repositories/logRepository';
 import { useToast } from '@/components/ui/Toast';
 import { Modal } from '@/components/ui/Modal';
@@ -18,7 +19,19 @@ interface SettingsViewProps {
   users: User[];
   actionLogs: ActionLog[];
   profile: User;
+  settings: AppSettings;
 }
+
+/** Clés des listes paramétrables éditables. */
+type ListCategory = 'originServices' | 'wasteTypes' | 'eliminationModes' | 'incidentTypes';
+
+/** Métadonnées d'affichage de chaque liste paramétrable. */
+const LIST_CATEGORIES: { key: ListCategory; label: string }[] = [
+  { key: 'originServices', label: "Services d'origine" },
+  { key: 'wasteTypes', label: 'Types de déchets' },
+  { key: 'eliminationModes', label: "Modes d'élimination" },
+  { key: 'incidentTypes', label: "Types d'incidents" },
+];
 
 /** Date du jour au format AAAA-MM-JJ (fuseau local), pour nommer le fichier de sauvegarde. */
 function todayStamp(): string {
@@ -38,7 +51,7 @@ function formatLogDate(iso: string): string {
 
 const CONFIRM_PHRASE = 'CONFIRMER';
 
-export function SettingsView({ wasteItems, incidents, users, actionLogs, profile }: SettingsViewProps) {
+export function SettingsView({ wasteItems, incidents, users, actionLogs, profile, settings }: SettingsViewProps) {
   const { success, error } = useToast();
 
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -49,6 +62,17 @@ export function SettingsView({ wasteItems, incidents, users, actionLogs, profile
   // Sauvegarde validée en attente de confirmation (null = modale fermée).
   const [pendingRestore, setPendingRestore] = useState<ParsedBackup | null>(null);
   const [confirmText, setConfirmText] = useState('');
+
+  // Les listes affichées dérivent directement de `settings` (temps réel) — pas d'état local à resynchroniser.
+  // Champ texte « Ajouter » par catégorie.
+  const [newValues, setNewValues] = useState<Record<ListCategory, string>>({
+    originServices: '',
+    wasteTypes: '',
+    eliminationModes: '',
+    incidentTypes: '',
+  });
+  // Catégorie en cours d'enregistrement (pour l'état de chargement / désactivation).
+  const [savingCategory, setSavingCategory] = useState<ListCategory | null>(null);
 
   async function handleCreateBackup() {
     if (isBackingUp) return;
@@ -130,6 +154,42 @@ export function SettingsView({ wasteItems, incidents, users, actionLogs, profile
     } finally {
       setIsRestoring(false);
     }
+  }
+
+  /** Persiste une nouvelle liste pour une catégorie : sauvegarde Firestore + toast + writeLog. */
+  async function persistList(category: ListCategory, nextList: string[]) {
+    if (savingCategory) return;
+    const label = LIST_CATEGORIES.find((c) => c.key === category)?.label ?? category;
+    setSavingCategory(category);
+    try {
+      await saveSettings(profile.hospitalId, { [category]: nextList });
+      success('Liste mise à jour.');
+      await writeLog(profile.hospitalId, `Mise à jour des listes paramétrables (${label})`);
+    } catch {
+      error('Échec de la mise à jour de la liste.');
+    } finally {
+      setSavingCategory(null);
+    }
+  }
+
+  /** Ajoute un élément à une liste : refuse les chaînes vides et les doublons. */
+  async function handleAddItem(category: ListCategory) {
+    const value = newValues[category].trim();
+    if (!value) {
+      error('Veuillez saisir une valeur.');
+      return;
+    }
+    if (settings[category].some((item) => item.toLowerCase() === value.toLowerCase())) {
+      error('Cet élément existe déjà dans la liste.');
+      return;
+    }
+    await persistList(category, [...settings[category], value]);
+    setNewValues((prev) => ({ ...prev, [category]: '' }));
+  }
+
+  /** Retire un élément d'une liste. */
+  async function handleRemoveItem(category: ListCategory, value: string) {
+    await persistList(category, settings[category].filter((item) => item !== value));
   }
 
   const confirmReady = confirmText.trim() === CONFIRM_PHRASE;
@@ -217,6 +277,82 @@ export function SettingsView({ wasteItems, incidents, users, actionLogs, profile
               disabled={isRestoring}
               className="block w-full text-sm text-muted file:mr-3 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-bold file:bg-surface-2 file:text-primary hover:file:opacity-90 disabled:opacity-50"
             />
+          </div>
+        </div>
+
+        {/* Listes paramétrables (admin) */}
+        <div className="bg-surface border border-subtle rounded-2xl p-6 space-y-4 lg:col-span-2">
+          <div className="flex items-center gap-3">
+            <span className="text-accent" aria-hidden="true"><SlidersHorizontal className="w-5 h-5" /></span>
+            <h4 className="font-black italic uppercase text-primary text-sm">Listes paramétrables</h4>
+          </div>
+          <p className="text-xs text-muted">
+            Personnalise les valeurs proposées dans les menus déroulants des formulaires (déchets et incidents).
+            Toute modification est enregistrée immédiatement pour l'ensemble de l'établissement.
+          </p>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            {LIST_CATEGORIES.map(({ key, label }) => {
+              const items = settings[key];
+              const isSaving = savingCategory === key;
+              return (
+                <div key={key} className="bg-surface-2 border border-subtle rounded-xl p-4 space-y-3">
+                  <h5 className="text-xs font-bold uppercase tracking-wide text-primary">{label}</h5>
+
+                  {items.length === 0 ? (
+                    <p className="text-xs text-faint italic">Aucun élément. Ajoutez-en un ci-dessous.</p>
+                  ) : (
+                    <ul className="flex flex-wrap gap-2">
+                      {items.map((item) => (
+                        <li
+                          key={item}
+                          className="inline-flex items-center gap-1.5 pl-3 pr-1.5 py-1 rounded-full bg-surface border border-subtle text-xs text-primary"
+                        >
+                          <span className="break-words">{item}</span>
+                          <button
+                            type="button"
+                            onClick={() => handleRemoveItem(key, item)}
+                            disabled={isSaving}
+                            aria-label={`Supprimer ${item}`}
+                            className="inline-flex items-center justify-center w-4 h-4 rounded-full text-muted hover:text-accent hover:bg-surface-2 disabled:opacity-50"
+                          >
+                            <X className="w-3 h-3" aria-hidden="true" />
+                          </button>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+
+                  <form
+                    className="flex items-center gap-2 pt-1"
+                    onSubmit={(e: React.FormEvent<HTMLFormElement>) => {
+                      e.preventDefault();
+                      void handleAddItem(key);
+                    }}
+                  >
+                    <input
+                      type="text"
+                      value={newValues[key]}
+                      onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
+                        setNewValues((prev) => ({ ...prev, [key]: e.target.value }))
+                      }
+                      disabled={isSaving}
+                      placeholder="Nouvel élément…"
+                      aria-label={`Ajouter à ${label}`}
+                      className="flex-1 min-w-0 px-3 py-1.5 rounded-lg text-xs bg-surface border border-subtle text-primary placeholder:text-faint focus:outline-none focus:border-accent disabled:opacity-50"
+                    />
+                    <button
+                      type="submit"
+                      disabled={isSaving}
+                      className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-bold bg-accent text-black hover:opacity-90 disabled:opacity-50"
+                    >
+                      <Plus className="w-3.5 h-3.5" aria-hidden="true" />
+                      {isSaving ? 'Enregistrement…' : 'Ajouter'}
+                    </button>
+                  </form>
+                </div>
+              );
+            })}
           </div>
         </div>
 

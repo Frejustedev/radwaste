@@ -5,6 +5,7 @@ import {
 import { db } from '@/lib/firebase';
 import type { WasteItem } from '@/types';
 import { makeRegistryNumber } from './ids';
+import { stripUndefined } from './sanitize';
 
 const COL = 'wasteItems';
 
@@ -26,12 +27,12 @@ export async function createWasteItem(input: Omit<WasteItem, 'id' | 'registryNum
   const ref = doc(collection(db, COL));
   const isotope = input.radionuclide ? input.radionuclide.replace('-', '').toUpperCase() : 'UNK';
   const item: WasteItem = { ...input, id: ref.id, registryNumber: makeRegistryNumber('WST', isotope) };
-  await setDoc(ref, item);
+  await setDoc(ref, stripUndefined(item));
   return ref.id;
 }
 
 export async function updateWasteItem(id: string, patch: Partial<WasteItem>): Promise<void> {
-  await updateDoc(doc(db, COL, id), patch);
+  await updateDoc(doc(db, COL, id), stripUndefined(patch));
 }
 
 /** Supprime un déchet et, atomiquement, les incidents qui lui sont rattachés. */

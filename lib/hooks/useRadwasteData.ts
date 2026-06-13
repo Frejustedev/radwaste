@@ -4,11 +4,13 @@ import { useEffect, useState } from 'react';
 import { onAuthStateChanged, type User as FirebaseUser } from 'firebase/auth';
 import type { Unsubscribe } from 'firebase/firestore';
 import { auth } from '@/lib/firebase';
-import type { WasteItem, Incident, User, ActionLog } from '@/types';
+import type { WasteItem, Incident, User, ActionLog, AppSettings } from '@/types';
 import { getUserProfile, updateUserProfile, subscribeUsers } from '@/lib/repositories/userRepository';
 import { subscribeWasteItems } from '@/lib/repositories/wasteRepository';
 import { subscribeIncidents } from '@/lib/repositories/incidentRepository';
 import { subscribeLogs } from '@/lib/repositories/logRepository';
+import { subscribeSettings } from '@/lib/repositories/settingsRepository';
+import { withDefaults } from '@/lib/settings/defaults';
 
 export interface RadwasteData {
   authUser: FirebaseUser | null;
@@ -19,6 +21,7 @@ export interface RadwasteData {
   incidents: Incident[];
   users: User[];
   actionLogs: ActionLog[];
+  settings: AppSettings;
 }
 
 export function useRadwasteData(onSubscriptionError?: (msg: string) => void): RadwasteData {
@@ -31,6 +34,7 @@ export function useRadwasteData(onSubscriptionError?: (msg: string) => void): Ra
   const [incidents, setIncidents] = useState<Incident[]>([]);
   const [users, setUsers] = useState<User[]>([]);
   const [actionLogs, setActionLogs] = useState<ActionLog[]>([]);
+  const [rawSettings, setRawSettings] = useState<Partial<AppSettings> | null>(null);
 
   // Authentification + chargement du profil
   useEffect(() => {
@@ -74,9 +78,12 @@ export function useRadwasteData(onSubscriptionError?: (msg: string) => void): Ra
       subscribeIncidents(hospitalId, setIncidents, onErr('incidents')),
       subscribeUsers(hospitalId, setUsers, onErr('utilisateurs')),
       subscribeLogs(hospitalId, setActionLogs, onErr('journal')),
+      subscribeSettings(hospitalId, setRawSettings, onErr('paramètres')),
     ];
     return () => subs.forEach((u) => u());
   }, [hospitalId, onSubscriptionError]);
 
-  return { authUser, profile, authLoading, profileLoading, wasteItems, incidents, users, actionLogs };
+  const settings = withDefaults(hospitalId ?? '', rawSettings);
+
+  return { authUser, profile, authLoading, profileLoading, wasteItems, incidents, users, actionLogs, settings };
 }

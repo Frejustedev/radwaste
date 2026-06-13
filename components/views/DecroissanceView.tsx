@@ -94,11 +94,11 @@ export function DecroissanceView({ wasteItems, profile }: DecroissanceViewProps)
     {
       key: 'mesure',
       header: 'Mesure initiale',
-      sortValue: (w) => w.initialActivity,
-      csvValue: (w) => w.initialActivity,
+      sortValue: (w) => w.initialActivity ?? -1,
+      csvValue: (w) => w.initialActivity ?? '',
       render: (w) => (
         <div>
-          <div className="font-bold text-primary tabular">{w.initialActivity} MBq</div>
+          <div className="font-bold text-primary tabular">{w.initialActivity != null ? `${w.initialActivity} MBq` : '—'}</div>
           <div className="text-xs text-muted">{w.measureDate ? new Date(w.measureDate).toLocaleString('fr-FR') : '—'}</div>
         </div>
       ),

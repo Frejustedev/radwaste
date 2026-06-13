@@ -5,6 +5,7 @@ import {
 import { db } from '@/lib/firebase';
 import type { Incident } from '@/types';
 import { makeRegistryNumber } from './ids';
+import { stripUndefined } from './sanitize';
 
 const COL = 'incidents';
 
@@ -24,12 +25,12 @@ export function subscribeIncidents(
 export async function createIncident(input: Omit<Incident, 'id' | 'registryNumber'>): Promise<string> {
   const ref = doc(collection(db, COL));
   const incident: Incident = { ...input, id: ref.id, registryNumber: makeRegistryNumber('INC', String(new Date().getFullYear())) };
-  await setDoc(ref, incident);
+  await setDoc(ref, stripUndefined(incident));
   return ref.id;
 }
 
 export async function updateIncident(id: string, patch: Partial<Incident>): Promise<void> {
-  await updateDoc(doc(db, COL, id), patch);
+  await updateDoc(doc(db, COL, id), stripUndefined(patch));
 }
 
 export async function deleteIncident(id: string): Promise<void> {

@@ -39,7 +39,7 @@ const TAB_TITLES: Record<Tab, string> = {
 export default function NuclearWasteApp() {
   const { error } = useToast();
   const onSubError = useCallback((msg: string) => error(msg), [error]);
-  const { authUser, profile, authLoading, profileLoading, wasteItems, incidents, users, actionLogs } = useRadwasteData(onSubError);
+  const { authUser, profile, authLoading, profileLoading, wasteItems, incidents, users, actionLogs, settings } = useRadwasteData(onSubError);
 
   const [activeTab, setActiveTab] = useState<Tab>('dashboard');
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
@@ -210,13 +210,13 @@ export default function NuclearWasteApp() {
               <h2 className="text-2xl font-black italic text-primary tracking-tighter uppercase">{TAB_TITLES[activeTab]}</h2>
             </header>
             {activeTab === 'dashboard' && <DashboardView wasteItems={wasteItems} incidents={incidents} onNavigate={(t) => go(t as Tab)} theme={theme} />}
-            {activeTab === 'identification' && <IdentificationView wasteItems={wasteItems} users={users} profile={profile} />}
+            {activeTab === 'identification' && <IdentificationView wasteItems={wasteItems} users={users} profile={profile} settings={settings} />}
             {activeTab === 'decroissance' && <DecroissanceView wasteItems={wasteItems} profile={profile} />}
-            {activeTab === 'sortie' && <SortieView wasteItems={wasteItems} users={users} profile={profile} />}
-            {activeTab === 'incidents' && <IncidentsView incidents={incidents} wasteItems={wasteItems} users={users} profile={profile} />}
+            {activeTab === 'sortie' && <SortieView wasteItems={wasteItems} users={users} profile={profile} settings={settings} />}
+            {activeTab === 'incidents' && <IncidentsView incidents={incidents} wasteItems={wasteItems} users={users} profile={profile} settings={settings} />}
             {activeTab === 'reports' && <ReportsView wasteItems={wasteItems} />}
             {activeTab === 'users' && canManageUsers(profile) && <UsersView users={users} profile={profile} />}
-            {activeTab === 'settings' && canManageSettings(profile) && <SettingsView wasteItems={wasteItems} incidents={incidents} users={users} actionLogs={actionLogs} profile={profile} />}
+            {activeTab === 'settings' && canManageSettings(profile) && <SettingsView wasteItems={wasteItems} incidents={incidents} users={users} actionLogs={actionLogs} profile={profile} settings={settings} />}
             {activeTab === 'help' && <HelpView />}
           </section>
         </main>

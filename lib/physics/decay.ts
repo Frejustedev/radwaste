@@ -8,44 +8,51 @@ import {
 const MS_PER_HOUR = 3_600_000;
 const BQ_PER_MBQ = 1e6;
 
-/** Heures écoulées entre `measureDate` et `now`. Null si la date est invalide. */
-export function elapsedHours(measureDateIso: string, now: Date = new Date()): number | null {
+/** Heures écoulées entre `measureDate` et `now`. Null si la date est absente ou invalide. */
+export function elapsedHours(measureDateIso: string | undefined, now: Date = new Date()): number | null {
+  if (!measureDateIso) return null;
   const measure = new Date(measureDateIso).getTime();
   if (Number.isNaN(measure)) return null;
-  const hours = (now.getTime() - measure) / MS_PER_HOUR;
-  return Math.max(0, hours);
+  return Math.max(0, (now.getTime() - measure) / MS_PER_HOUR);
 }
 
-/** Activité résiduelle en MBq selon la loi de décroissance A = A0 · 0.5^(t/T½). Null si données invalides. */
-export function residualActivityMBq(item: Pick<WasteItem, 'initialActivity' | 'measureDate' | 'halfLife'>, now: Date = new Date()): number | null {
+type DecayInput = Pick<WasteItem, 'initialActivity' | 'measureDate' | 'halfLife'>;
+
+/** Activité résiduelle en MBq selon A = A0 · 0.5^(t/T½). Null si données manquantes/invalides. */
+export function residualActivityMBq(item: DecayInput, now: Date = new Date()): number | null {
+  const { initialActivity, halfLife } = item;
+  if (typeof initialActivity !== 'number' || initialActivity < 0) return null;
+  if (typeof halfLife !== 'number' || halfLife <= 0) return null;
   const hours = elapsedHours(item.measureDate, now);
   if (hours === null) return null;
-  if (!(item.halfLife > 0) || !(item.initialActivity >= 0)) return null;
-  const halfLives = hours / item.halfLife;
-  return item.initialActivity * Math.pow(0.5, halfLives);
+  return initialActivity * Math.pow(0.5, hours / halfLife);
 }
 
-/** Pourcentage de décroissance (0–100). Null si données invalides. */
-export function decayPercentage(item: Pick<WasteItem, 'initialActivity' | 'measureDate' | 'halfLife'>, now: Date = new Date()): number | null {
+/** Pourcentage de décroissance (0–100). Null si données manquantes/invalides. */
+export function decayPercentage(item: DecayInput, now: Date = new Date()): number | null {
+  const { halfLife } = item;
+  if (typeof halfLife !== 'number' || halfLife <= 0) return null;
   const hours = elapsedHours(item.measureDate, now);
-  if (hours === null || !(item.halfLife > 0)) return null;
-  const halfLives = hours / item.halfLife;
-  return Math.min(100, (1 - Math.pow(0.5, halfLives)) * 100);
+  if (hours === null) return null;
+  return Math.min(100, (1 - Math.pow(0.5, hours / halfLife)) * 100);
 }
 
-/** Nombre de périodes (demi-vies) écoulées depuis la mesure. Null si données invalides. */
+/** Nombre de périodes (demi-vies) écoulées. Null si données manquantes/invalides. */
 export function halfLivesElapsed(item: Pick<WasteItem, 'measureDate' | 'halfLife'>, now: Date = new Date()): number | null {
+  const { halfLife } = item;
+  if (typeof halfLife !== 'number' || halfLife <= 0) return null;
   const hours = elapsedHours(item.measureDate, now);
-  if (hours === null || !(item.halfLife > 0)) return null;
-  return hours / item.halfLife;
+  if (hours === null) return null;
+  return hours / halfLife;
 }
 
 /** Activité massique résiduelle en Bq/g. Null si masse absente/invalide ou activité incalculable. */
 export function massicActivityBqPerG(item: Pick<WasteItem, 'initialActivity' | 'measureDate' | 'halfLife' | 'mass'>, now: Date = new Date()): number | null {
   const residualMBq = residualActivityMBq(item, now);
   if (residualMBq === null) return null;
-  if (!(item.mass > 0)) return null;
-  return (residualMBq * BQ_PER_MBQ) / item.mass;
+  const { mass } = item;
+  if (typeof mass !== 'number' || mass <= 0) return null;
+  return (residualMBq * BQ_PER_MBQ) / mass;
 }
 
 /** Niveau de libération applicable (Bq/g) : override de l'item sinon table de référence. Null si inconnu. */
@@ -58,16 +65,21 @@ export function applicableClearanceLevel(item: Pick<WasteItem, 'radionuclide' | 
 
 /** Date théorique à laquelle l'activité massique passe sous le seuil de libération. Null si incalculable. */
 export function theoreticalReleaseDate(item: Pick<WasteItem, 'initialActivity' | 'measureDate' | 'halfLife' | 'mass' | 'radionuclide' | 'clearanceLevelBqPerG'>): Date | null {
-  const measure = new Date(item.measureDate).getTime();
-  if (Number.isNaN(measure) || !(item.halfLife > 0) || !(item.mass > 0) || !(item.initialActivity > 0)) return null;
+  const { initialActivity, halfLife, mass, measureDate } = item;
+  if (!measureDate) return null;
+  const measure = new Date(measureDate).getTime();
+  if (Number.isNaN(measure)) return null;
+  if (typeof halfLife !== 'number' || halfLife <= 0) return null;
+  if (typeof mass !== 'number' || mass <= 0) return null;
+  if (typeof initialActivity !== 'number' || initialActivity <= 0) return null;
   const clearance = applicableClearanceLevel(item);
-  if (clearance === null || !(clearance > 0)) return null;
+  if (clearance === null || clearance <= 0) return null;
 
-  const initialMassicBqPerG = (item.initialActivity * BQ_PER_MBQ) / item.mass;
+  const initialMassicBqPerG = (initialActivity * BQ_PER_MBQ) / mass;
   if (initialMassicBqPerG <= clearance) return new Date(measure);
 
   // t = T½ · log0.5(clearance / initialMassic)
-  const hoursNeeded = item.halfLife * (Math.log(clearance / initialMassicBqPerG) / Math.log(0.5));
+  const hoursNeeded = halfLife * (Math.log(clearance / initialMassicBqPerG) / Math.log(0.5));
   return new Date(measure + hoursNeeded * MS_PER_HOUR);
 }
 
@@ -96,14 +108,14 @@ export function evaluateDecay(item: WasteItem, now: Date = new Date()): DecayEva
   const reasons: string[] = [];
 
   const meetsMassicCriterion = massicBqPerG !== null && clearance !== null && massicBqPerG <= clearance;
-  if (massicBqPerG === null) reasons.push('Activité massique incalculable (masse manquante ou données invalides).');
+  if (massicBqPerG === null) reasons.push('Activité massique incalculable (activité, masse ou date de mesure manquante).');
   if (clearance === null) reasons.push('Niveau de libération inconnu pour ce radionucléide (à renseigner).');
   if (massicBqPerG !== null && clearance !== null && massicBqPerG > clearance) {
     reasons.push('Activité massique résiduelle au-dessus du seuil de libération.');
   }
 
   const meetsTenHalfLivesCriterion = halfLives !== null && halfLives >= MIN_HALF_LIVES_FOR_RELEASE;
-  if (halfLives === null) reasons.push('Nombre de périodes écoulées incalculable.');
+  if (halfLives === null) reasons.push('Nombre de périodes écoulées incalculable (demi-vie ou date de mesure manquante).');
   else if (halfLives < MIN_HALF_LIVES_FOR_RELEASE) {
     reasons.push(`Moins de ${MIN_HALF_LIVES_FOR_RELEASE} périodes écoulées (${halfLives.toFixed(1)}).`);
   }

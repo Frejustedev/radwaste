@@ -26,9 +26,21 @@ function isNonEmptyString(v: unknown): v is string {
   return typeof v === 'string' && v.trim().length > 0;
 }
 
+export interface WasteFormValue {
+  originService?: string;
+  initialActivity?: number;
+  mass?: number;
+  halfLife?: number;
+  doseRateContact?: number;
+  doseRate1m?: number;
+  clearanceLevelBqPerG?: number;
+  measureDate?: string;
+}
+
 /**
- * Valide les champs radiophysiques saisis dans le formulaire d'identification.
- * Aucune valeur par défaut silencieuse : une saisie invalide produit une erreur explicite.
+ * Valide le formulaire d'identification. Seuls le TYPE et le RADIONUCLÉIDE sont obligatoires :
+ * tous les autres champs peuvent être renseignés plus tard. Un champ rempli mais invalide
+ * produit une erreur explicite (pas de valeur par défaut silencieuse).
  */
 export function validateWasteForm(input: {
   originService: string;
@@ -41,45 +53,33 @@ export function validateWasteForm(input: {
   doseRateContact: string;
   doseRate1m: string;
   clearanceLevelBqPerG: string;
-}): ValidationResult<{
-  initialActivity: number;
-  mass: number;
-  halfLife: number;
-  doseRateContact: number;
-  doseRate1m: number;
-  clearanceLevelBqPerG?: number;
-  measureDate: string;
-}> {
+}): ValidationResult<WasteFormValue> {
   const errors: FieldError[] = [];
 
-  if (!isNonEmptyString(input.originService)) errors.push({ field: 'originService', message: "Service d'origine requis." });
   if (!isNonEmptyString(input.type)) errors.push({ field: 'type', message: 'Type de déchet requis.' });
   if (!isNonEmptyString(input.radionuclide)) errors.push({ field: 'radionuclide', message: 'Radionucléide requis.' });
 
-  const initialActivity = parsePositiveNumber(input.initialActivity);
-  if (initialActivity === null) errors.push({ field: 'initialActivity', message: 'Activité initiale (MBq) strictement positive requise.' });
+  // Champ numérique optionnel : ignoré si vide, validé s'il est renseigné.
+  const optionalNumber = (raw: string, field: string, label: string, allowZero = false): number | undefined => {
+    if (!isNonEmptyString(raw)) return undefined;
+    const n = parsePositiveNumber(raw, { allowZero });
+    if (n === null) { errors.push({ field, message: `${label} : valeur invalide.` }); return undefined; }
+    return n;
+  };
 
-  const mass = parsePositiveNumber(input.mass);
-  if (mass === null) errors.push({ field: 'mass', message: 'Masse du colis (g) strictement positive requise (nécessaire au calcul de l’activité massique).' });
+  const initialActivity = optionalNumber(input.initialActivity, 'initialActivity', 'Activité initiale (MBq)');
+  const mass = optionalNumber(input.mass, 'mass', 'Masse du colis (g)');
+  const halfLife = optionalNumber(input.halfLife, 'halfLife', 'Demi-vie physique (h)');
+  const doseRateContact = optionalNumber(input.doseRateContact, 'doseRateContact', 'Débit de dose au contact', true);
+  const doseRate1m = optionalNumber(input.doseRate1m, 'doseRate1m', 'Débit de dose à 1 m', true);
+  const clearanceLevelBqPerG = optionalNumber(input.clearanceLevelBqPerG, 'clearanceLevelBqPerG', 'Niveau de libération (Bq/g)');
 
-  const halfLife = parsePositiveNumber(input.halfLife);
-  if (halfLife === null) errors.push({ field: 'halfLife', message: 'Demi-vie physique (h) strictement positive requise.' });
-
-  const doseRateContact = parsePositiveNumber(input.doseRateContact, { allowZero: true });
-  if (doseRateContact === null) errors.push({ field: 'doseRateContact', message: 'Débit de dose au contact invalide.' });
-
-  const doseRate1mParsed = parsePositiveNumber(input.doseRate1m, { allowZero: true });
-  const doseRate1m = doseRate1mParsed === null ? (doseRateContact ?? 0) / 10 : doseRate1mParsed;
-
-  let clearanceLevelBqPerG: number | undefined;
-  if (isNonEmptyString(input.clearanceLevelBqPerG)) {
-    const c = parsePositiveNumber(input.clearanceLevelBqPerG);
-    if (c === null) errors.push({ field: 'clearanceLevelBqPerG', message: 'Niveau de libération (Bq/g) invalide.' });
-    else clearanceLevelBqPerG = c;
+  let measureDate: string | undefined;
+  if (isNonEmptyString(input.measureDate)) {
+    const d = new Date(input.measureDate);
+    if (Number.isNaN(d.getTime())) errors.push({ field: 'measureDate', message: 'Date de mesure invalide.' });
+    else measureDate = d.toISOString();
   }
-
-  const measure = new Date(input.measureDate);
-  if (Number.isNaN(measure.getTime())) errors.push({ field: 'measureDate', message: 'Date de mesure invalide.' });
 
   if (errors.length > 0) return { ok: false, errors };
 
@@ -87,13 +87,14 @@ export function validateWasteForm(input: {
     ok: true,
     errors: [],
     value: {
-      initialActivity: initialActivity!,
-      mass: mass!,
-      halfLife: halfLife!,
-      doseRateContact: doseRateContact!,
+      originService: isNonEmptyString(input.originService) ? input.originService : undefined,
+      initialActivity,
+      mass,
+      halfLife,
+      doseRateContact,
       doseRate1m,
       clearanceLevelBqPerG,
-      measureDate: measure.toISOString(),
+      measureDate,
     },
   };
 }
@@ -119,8 +120,8 @@ function checkIncident(o: unknown): o is Incident {
   return isNonEmptyString(i.id)
     && isNonEmptyString(i.date)
     && typeof i.type === 'string'
-    && typeof i.doseRateBefore === 'number'
-    && typeof i.doseRateAfter === 'number';
+    && (i.doseRateBefore === undefined || typeof i.doseRateBefore === 'number')
+    && (i.doseRateAfter === undefined || typeof i.doseRateAfter === 'number');
 }
 
 function checkUser(o: unknown): o is User {

@@ -62,13 +62,13 @@ service cloud.firestore {
     }
 
     function isValidIncident(data) {
-      return data.keys().hasAll(['id', 'date', 'type', 'doseRateBefore', 'doseRateAfter', 'hospitalId']) &&
+      return data.keys().hasAll(['id', 'date', 'type', 'hospitalId']) &&
              data.id is string && data.id.size() > 0 && data.id.size() <= 128 &&
              data.date is string && data.date.size() <= 64 &&
              data.type is string && data.type.size() <= 128 &&
-             data.doseRateBefore is number &&
-             data.doseRateAfter is number &&
-             data.hospitalId is string && data.hospitalId.size() <= 128;
+             data.hospitalId is string && data.hospitalId.size() <= 128 &&
+             (!('doseRateBefore' in data) || data.doseRateBefore is number) &&
+             (!('doseRateAfter' in data) || data.doseRateAfter is number);
     }
 
     function isValidUser(data) {
@@ -152,6 +152,16 @@ service cloud.firestore {
                        && request.resource.data.userEmail == request.auth.token.email
                        && request.resource.data.date == request.time;     // horodatage serveur imposé
       allow update, delete: if false;                                     // inviolable
+    }
+
+    // ---------------------------------------------------------------
+    // Listes paramétrables par établissement (id du document = hospitalId)
+    // ---------------------------------------------------------------
+    match /appSettings/{settingsId} {
+      allow read: if isSignedIn() && sameHospital(resource.data);
+      allow write: if isSignedIn() && isAdmin()
+                      && settingsId == callerHospital()
+                      && request.resource.data.hospitalId == callerHospital();
     }
 
     // ---------------------------------------------------------------

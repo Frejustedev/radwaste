@@ -2,7 +2,7 @@
 
 import React, { useMemo, useState } from 'react';
 import { ClipboardCheck } from 'lucide-react';
-import type { WasteItem, User } from '@/types';
+import type { WasteItem, User, AppSettings } from '@/types';
 import { residualActivityMBq, evaluateExitControl } from '@/lib/physics/decay';
 import { updateWasteItem } from '@/lib/repositories/wasteRepository';
 import { writeLog } from '@/lib/repositories/logRepository';
@@ -16,9 +16,8 @@ interface SortieViewProps {
   wasteItems: WasteItem[];
   users: User[];
   profile: User;
+  settings: AppSettings;
 }
-
-const ELIMINATION_MODES = ['Filière agréée', 'Incinérateur classique', 'Déchets standards', 'Autre'];
 
 /** Formate une date ISO en date locale française, ou un tiret si absente/invalide. */
 function formatIsoDate(iso?: string): string {
@@ -28,7 +27,7 @@ function formatIsoDate(iso?: string): string {
   return d.toLocaleDateString('fr-FR');
 }
 
-export function SortieView({ wasteItems, users, profile }: SortieViewProps) {
+export function SortieView({ wasteItems, users, profile, settings }: SortieViewProps) {
   const { success, error } = useToast();
 
   // Item en cours de contrôle (null = modale fermée).
@@ -253,7 +252,7 @@ export function SortieView({ wasteItems, users, profile }: SortieViewProps) {
               name="eliminationMode"
               value={eliminationMode}
               onChange={(e: React.ChangeEvent<HTMLSelectElement>) => setEliminationMode(e.target.value)}
-              options={ELIMINATION_MODES}
+              options={settings.eliminationModes}
               required
             />
 

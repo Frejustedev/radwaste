@@ -2,7 +2,7 @@
 
 import React, { useMemo, useState } from 'react';
 import { Plus, Trash2, Edit2, X } from 'lucide-react';
-import type { WasteItem, User, Radionuclide, WasteType } from '@/types';
+import type { WasteItem, User, AppSettings, Radionuclide, WasteType } from '@/types';
 import { validateWasteForm } from '@/lib/validation/schemas';
 import {
   RADIONUCLIDE_OPTIONS,
@@ -24,32 +24,16 @@ import {
 } from '@/components/ui/Primitives';
 import { DataTable, type Column } from '@/components/ui/DataTable';
 
-const ORIGIN_SERVICE_OPTIONS: string[] = [
-  'labo chaud',
-  'salle d’injection',
-  'salle d’attente chaude',
-  'salle d’acquisition',
-  'salle de consultation chaude',
-  'salle d’interprétation',
-];
-
-const TYPE_OPTIONS: string[] = [
-  'solide',
-  'liquide',
-  'biologique',
-  'seringue',
-  'flacon',
-  'tubulure',
-  'gants',
-  'compresses',
-  'autres',
-];
-
 /** Date-heure locale courante tronquée à la minute, format attendu par un input datetime-local. */
 function nowLocal16(): string {
   const d = new Date();
   const pad = (n: number) => String(n).padStart(2, '0');
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
+/** Convertit un nombre éventuellement absent en chaîne de saisie (vide si undefined). */
+function numToInput(n: number | undefined): string {
+  return n === undefined ? '' : String(n);
 }
 
 interface FormState {
@@ -86,9 +70,10 @@ interface IdentificationViewProps {
   wasteItems: WasteItem[];
   users: User[];
   profile: User;
+  settings: AppSettings;
 }
 
-export function IdentificationView({ wasteItems, users, profile }: IdentificationViewProps) {
+export function IdentificationView({ wasteItems, users, profile, settings }: IdentificationViewProps) {
   const { success, error } = useToast();
 
   const [isAdding, setIsAdding] = useState<boolean>(false);
@@ -100,6 +85,8 @@ export function IdentificationView({ wasteItems, users, profile }: Identificatio
 
   const operatorOptions = useMemo<string[]>(() => users.map((u) => u.name), [users]);
   const radionuclideOptions = useMemo<string[]>(() => [...RADIONUCLIDE_OPTIONS], []);
+  const originServiceOptions = useMemo<string[]>(() => settings.originServices, [settings.originServices]);
+  const typeOptions = useMemo<string[]>(() => settings.wasteTypes, [settings.wasteTypes]);
 
   const storageItems = useMemo<WasteItem[]>(
     () => wasteItems.filter((w) => w.status === 'stockage'),
@@ -141,17 +128,17 @@ export function IdentificationView({ wasteItems, users, profile }: Identificatio
 
   function startEdit(item: WasteItem) {
     setForm({
-      originService: item.originService,
-      responsibleOperator: item.responsibleOperator,
+      originService: item.originService ?? '',
+      responsibleOperator: item.responsibleOperator ?? profile.name,
       type: item.type,
       radionuclide: item.radionuclide,
-      initialActivity: String(item.initialActivity),
-      mass: String(item.mass),
-      measureDate: toLocal16(item.measureDate),
-      halfLife: String(item.halfLife),
-      clearanceLevelBqPerG: item.clearanceLevelBqPerG !== undefined ? String(item.clearanceLevelBqPerG) : '',
-      doseRateContact: String(item.doseRateContact),
-      doseRate1m: String(item.doseRate1m),
+      initialActivity: numToInput(item.initialActivity),
+      mass: numToInput(item.mass),
+      measureDate: item.measureDate ? toLocal16(item.measureDate) : '',
+      halfLife: numToInput(item.halfLife),
+      clearanceLevelBqPerG: numToInput(item.clearanceLevelBqPerG),
+      doseRateContact: numToInput(item.doseRateContact),
+      doseRate1m: numToInput(item.doseRate1m),
     });
     setFieldErrors({});
     setEditId(item.id);
@@ -187,14 +174,15 @@ export function IdentificationView({ wasteItems, users, profile }: Identificatio
 
     setFieldErrors({});
     const v = result.value!;
+    const responsibleOperator = form.responsibleOperator.trim() ? form.responsibleOperator : undefined;
     setIsSubmitting(true);
     try {
       if (editId) {
         await updateWasteItem(editId, {
-          originService: form.originService,
-          responsibleOperator: form.responsibleOperator,
           type: form.type as WasteType,
           radionuclide: form.radionuclide as Radionuclide,
+          originService: v.originService,
+          responsibleOperator,
           initialActivity: v.initialActivity,
           mass: v.mass,
           measureDate: v.measureDate,
@@ -206,14 +194,15 @@ export function IdentificationView({ wasteItems, users, profile }: Identificatio
         success('Déchet mis à jour.');
         await writeLog(profile.hospitalId, `Modification du déchet ${editId} (${form.radionuclide})`);
       } else {
-        const nowIso = new Date().toISOString();
+        const NOW_ISO = new Date().toISOString();
         const input: Omit<WasteItem, 'id' | 'registryNumber'> = {
-          createdAt: nowIso,
+          createdAt: NOW_ISO,
           hospitalId: profile.hospitalId,
-          originService: form.originService,
-          responsibleOperator: form.responsibleOperator,
           type: form.type as WasteType,
           radionuclide: form.radionuclide as Radionuclide,
+          status: 'stockage',
+          originService: v.originService,
+          responsibleOperator,
           initialActivity: v.initialActivity,
           mass: v.mass,
           measureDate: v.measureDate,
@@ -221,10 +210,9 @@ export function IdentificationView({ wasteItems, users, profile }: Identificatio
           doseRate1m: v.doseRate1m,
           halfLife: v.halfLife,
           clearanceLevelBqPerG: v.clearanceLevelBqPerG,
-          storageEntryDate: nowIso,
+          storageEntryDate: NOW_ISO,
           storageResponsible: profile.name,
-          expectedDecayDuration: Math.ceil((10 * v.halfLife) / 24),
-          status: 'stockage',
+          expectedDecayDuration: v.halfLife !== undefined ? Math.ceil((10 * v.halfLife) / 24) : undefined,
         };
         const id = await createWasteItem(input);
         success('Déchet enregistré et placé en stockage.');
@@ -277,11 +265,11 @@ export function IdentificationView({ wasteItems, users, profile }: Identificatio
       render: (item) => (
         <div>
           <div className="capitalize font-bold text-primary">{item.type}</div>
-          <div className="text-xs text-muted capitalize">{item.originService}</div>
-          <div className="text-xs text-faint">{item.responsibleOperator}</div>
+          <div className="text-xs text-muted capitalize">{item.originService ?? '—'}</div>
+          <div className="text-xs text-faint">{item.responsibleOperator ?? '—'}</div>
         </div>
       ),
-      searchValue: (item) => `${item.type} ${item.originService} ${item.responsibleOperator}`,
+      searchValue: (item) => `${item.type} ${item.originService ?? ''} ${item.responsibleOperator ?? ''}`,
       csvValue: (item) => item.type,
     },
     {
@@ -290,7 +278,7 @@ export function IdentificationView({ wasteItems, users, profile }: Identificatio
       render: (item) => (
         <div>
           <div className="font-bold text-primary">{item.radionuclide}</div>
-          <div className="text-xs text-muted">T½ : {item.halfLife} h</div>
+          <div className="text-xs text-muted">T½ : {item.halfLife !== undefined ? `${item.halfLife} h` : '—'}</div>
         </div>
       ),
       sortValue: (item) => item.radionuclide,
@@ -302,15 +290,15 @@ export function IdentificationView({ wasteItems, users, profile }: Identificatio
       header: 'Mesure',
       render: (item) => (
         <div>
-          <div className="text-primary">{item.initialActivity} MBq</div>
+          <div className="text-primary">{item.initialActivity !== undefined ? `${item.initialActivity} MBq` : '—'}</div>
           <div className="text-xs text-muted">
-            {new Date(item.measureDate).toLocaleString('fr-FR')}
+            {item.measureDate ? new Date(item.measureDate).toLocaleString('fr-FR') : '—'}
           </div>
-          <div className="text-xs text-faint">masse {item.mass} g</div>
+          <div className="text-xs text-faint">masse {item.mass !== undefined ? `${item.mass} g` : '—'}</div>
         </div>
       ),
-      sortValue: (item) => item.initialActivity,
-      csvValue: (item) => item.initialActivity,
+      sortValue: (item) => item.initialActivity ?? 0,
+      csvValue: (item) => (item.initialActivity !== undefined ? item.initialActivity : ''),
     },
     {
       key: 'statut',
@@ -387,23 +375,25 @@ export function IdentificationView({ wasteItems, users, profile }: Identificatio
             {editId ? 'Modifier le déchet' : 'Nouveau déchet'}
           </h3>
 
+          <p className="text-xs text-faint">
+            Seuls le type de déchet et le radionucléide sont obligatoires. Les autres champs peuvent être complétés plus tard.
+          </p>
+
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <FormSelect
-              label="Service d'origine"
+              label="Service d'origine (optionnel)"
               name="originService"
               value={form.originService}
               onChange={handleSelectChange}
-              options={ORIGIN_SERVICE_OPTIONS}
-              required
+              options={originServiceOptions}
               error={fieldErrors.originService}
             />
             <FormSelect
-              label="Opérateur responsable"
+              label="Opérateur responsable (optionnel)"
               name="responsibleOperator"
               value={form.responsibleOperator}
               onChange={handleSelectChange}
               options={operatorOptions}
-              required
               error={fieldErrors.responsibleOperator}
             />
             <FormSelect
@@ -411,7 +401,7 @@ export function IdentificationView({ wasteItems, users, profile }: Identificatio
               name="type"
               value={form.type}
               onChange={handleSelectChange}
-              options={TYPE_OPTIONS}
+              options={typeOptions}
               required
               error={fieldErrors.type}
             />
@@ -425,45 +415,41 @@ export function IdentificationView({ wasteItems, users, profile }: Identificatio
               error={fieldErrors.radionuclide}
             />
             <FormInput
-              label="Activité initiale (MBq)"
+              label="Activité initiale (MBq) — optionnel"
               name="initialActivity"
               value={form.initialActivity}
               onChange={handleInputChange}
               type="number"
               step="any"
               min="0"
-              required
               error={fieldErrors.initialActivity}
             />
             <FormInput
-              label="Masse du colis (g)"
+              label="Masse du colis (g) — optionnel"
               name="mass"
               value={form.mass}
               onChange={handleInputChange}
               type="number"
               step="any"
               min="0"
-              required
               error={fieldErrors.mass}
             />
             <FormInput
-              label="Date et heure de mesure"
+              label="Date et heure de mesure (optionnel)"
               name="measureDate"
               value={form.measureDate}
               onChange={handleInputChange}
               type="datetime-local"
-              required
               error={fieldErrors.measureDate}
             />
             <FormInput
-              label="Demi-vie physique (h)"
+              label="Demi-vie physique (h) — optionnel"
               name="halfLife"
               value={form.halfLife}
               onChange={handleInputChange}
               type="number"
               step="any"
               min="0"
-              required
               error={fieldErrors.halfLife}
             />
             <FormInput
@@ -478,14 +464,13 @@ export function IdentificationView({ wasteItems, users, profile }: Identificatio
               error={fieldErrors.clearanceLevelBqPerG}
             />
             <FormInput
-              label="Débit de dose au contact (µSv/h)"
+              label="Débit de dose au contact (µSv/h) — optionnel"
               name="doseRateContact"
               value={form.doseRateContact}
               onChange={handleInputChange}
               type="number"
               step="any"
               min="0"
-              required
               error={fieldErrors.doseRateContact}
             />
             <FormInput

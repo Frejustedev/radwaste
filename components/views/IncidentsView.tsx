@@ -2,7 +2,7 @@
 
 import React, { useMemo, useState } from 'react';
 import { Plus, Trash2, Edit2, AlertTriangle, ShieldAlert } from 'lucide-react';
-import type { Incident, WasteItem, User, IncidentType } from '@/types';
+import type { Incident, WasteItem, User, AppSettings } from '@/types';
 import { parsePositiveNumber } from '@/lib/validation/schemas';
 import { createIncident, updateIncident, deleteIncident } from '@/lib/repositories/incidentRepository';
 import { writeLog } from '@/lib/repositories/logRepository';
@@ -16,9 +16,8 @@ interface IncidentsViewProps {
   wasteItems: WasteItem[];
   users: User[];
   profile: User;
+  settings: AppSettings;
 }
-
-const INCIDENT_TYPES: IncidentType[] = ['Déversement accidentel', 'Contamination', 'Perte de déchet'];
 
 interface IncidentFormState {
   type: string;
@@ -42,7 +41,13 @@ function wasteLabelOf(item: WasteItem): string {
   return item.registryNumber ?? item.id;
 }
 
-export function IncidentsView({ incidents, wasteItems, users, profile }: IncidentsViewProps) {
+/** Affichage sûr d'une valeur potentiellement non renseignée. */
+function displayOrDash(value: string | number | undefined): string {
+  if (value === undefined || value === '') return '—';
+  return String(value);
+}
+
+export function IncidentsView({ incidents, wasteItems, users, profile, settings }: IncidentsViewProps) {
   const { success, error } = useToast();
 
   const [isAdding, setIsAdding] = useState(false);
@@ -80,11 +85,11 @@ export function IncidentsView({ incidents, wasteItems, users, profile }: Inciden
   const openEdit = (incident: Incident) => {
     setForm({
       type: incident.type,
-      personnelFunction: incident.personnelFunction,
+      personnelFunction: incident.personnelFunction ?? '',
       wasteLabel: incident.wasteId ? (wasteIdToLabel.get(incident.wasteId) ?? '') : '',
-      doseRateBefore: String(incident.doseRateBefore),
-      doseRateAfter: String(incident.doseRateAfter),
-      correctiveActions: incident.correctiveActions,
+      doseRateBefore: incident.doseRateBefore !== undefined ? String(incident.doseRateBefore) : '',
+      doseRateAfter: incident.doseRateAfter !== undefined ? String(incident.doseRateAfter) : '',
+      correctiveActions: incident.correctiveActions ?? '',
     });
     setEditId(incident.id);
     setIsAdding(true);
@@ -109,41 +114,52 @@ export function IncidentsView({ incidents, wasteItems, users, profile }: Inciden
     e.preventDefault();
     if (isSubmitting) return;
 
+    // Seul le type d'incident est obligatoire désormais.
     if (!form.type) {
       error("Veuillez sélectionner le type d'incident.");
       return;
     }
-    if (!form.personnelFunction) {
-      error('Veuillez sélectionner le personnel impliqué.');
-      return;
-    }
-    if (!form.correctiveActions.trim()) {
-      error('Les actions correctives sont obligatoires.');
-      return;
+
+    // Dose initiale : vide -> non renseignée (undefined) ; renseignée mais invalide -> erreur.
+    let doseRateBefore: number | undefined;
+    if (form.doseRateBefore.trim() === '') {
+      doseRateBefore = undefined;
+    } else {
+      const parsed = parsePositiveNumber(form.doseRateBefore, { allowZero: true });
+      if (parsed === null) {
+        error('La dose initiale doit être un nombre positif ou nul (µSv/h).');
+        return;
+      }
+      doseRateBefore = parsed;
     }
 
-    const doseRateBefore = parsePositiveNumber(form.doseRateBefore, { allowZero: true });
-    if (doseRateBefore === null) {
-      error('La dose initiale doit être un nombre positif ou nul (µSv/h).');
-      return;
-    }
-    const doseRateAfter = parsePositiveNumber(form.doseRateAfter, { allowZero: true });
-    if (doseRateAfter === null) {
-      error('La dose finale doit être un nombre positif ou nul (µSv/h).');
-      return;
+    // Dose finale : même logique.
+    let doseRateAfter: number | undefined;
+    if (form.doseRateAfter.trim() === '') {
+      doseRateAfter = undefined;
+    } else {
+      const parsed = parsePositiveNumber(form.doseRateAfter, { allowZero: true });
+      if (parsed === null) {
+        error('La dose finale doit être un nombre positif ou nul (µSv/h).');
+        return;
+      }
+      doseRateAfter = parsed;
     }
 
+    const personnelFunction = form.personnelFunction ? form.personnelFunction : undefined;
+    const correctiveActions = form.correctiveActions.trim() ? form.correctiveActions.trim() : undefined;
     const wasteId = form.wasteLabel ? labelToWasteId.get(form.wasteLabel) : undefined;
 
     setIsSubmitting(true);
     try {
       if (editId) {
+        // Les clés undefined sont retirées automatiquement par le dépôt.
         await updateIncident(editId, {
-          type: form.type as IncidentType,
-          personnelFunction: form.personnelFunction,
+          type: form.type,
+          personnelFunction,
           doseRateBefore,
           doseRateAfter,
-          correctiveActions: form.correctiveActions.trim(),
+          correctiveActions,
           wasteId,
         });
         success('Incident mis à jour avec succès.');
@@ -152,11 +168,11 @@ export function IncidentsView({ incidents, wasteItems, users, profile }: Inciden
         const newId = await createIncident({
           date: new Date().toISOString(),
           hospitalId: profile.hospitalId,
-          personnelFunction: form.personnelFunction,
-          type: form.type as IncidentType,
+          type: form.type,
+          personnelFunction,
           doseRateBefore,
           doseRateAfter,
-          correctiveActions: form.correctiveActions.trim(),
+          correctiveActions,
           wasteId,
         });
         success('Incident déclaré avec succès.');
@@ -237,10 +253,12 @@ export function IncidentsView({ incidents, wasteItems, users, profile }: Inciden
         key: 'personnelFunction',
         header: 'Implication',
         render: (incident) => (
-          <span className="text-xs text-primary font-semibold">{incident.personnelFunction}</span>
+          <span className="text-xs text-primary font-semibold">
+            {incident.personnelFunction ?? <span className="text-faint italic">Non renseigné</span>}
+          </span>
         ),
-        sortValue: (incident) => incident.personnelFunction,
-        searchValue: (incident) => incident.personnelFunction,
+        sortValue: (incident) => incident.personnelFunction ?? '',
+        searchValue: (incident) => incident.personnelFunction ?? '',
       },
       {
         key: 'waste',
@@ -258,26 +276,27 @@ export function IncidentsView({ incidents, wasteItems, users, profile }: Inciden
           <div className="text-xs leading-snug">
             <div>
               <span className="text-muted">Initiale&nbsp;: </span>
-              <span className="font-black italic text-red-500">{incident.doseRateBefore}</span>
+              <span className="font-black italic text-red-500">{displayOrDash(incident.doseRateBefore)}</span>
             </div>
             <div>
               <span className="text-muted">Finale&nbsp;: </span>
-              <span className="font-black italic text-green-600">{incident.doseRateAfter}</span>
+              <span className="font-black italic text-green-600">{displayOrDash(incident.doseRateAfter)}</span>
             </div>
           </div>
         ),
-        sortValue: (incident) => incident.doseRateAfter,
-        csvValue: (incident) => `Initiale ${incident.doseRateBefore} / Finale ${incident.doseRateAfter} µSv/h`,
+        sortValue: (incident) => incident.doseRateAfter ?? -1,
+        csvValue: (incident) =>
+          `Initiale ${displayOrDash(incident.doseRateBefore)} / Finale ${displayOrDash(incident.doseRateAfter)} µSv/h`,
       },
       {
         key: 'correctiveActions',
         header: 'Actions correctives',
         render: (incident) => (
           <p className="text-xs text-primary leading-snug whitespace-pre-wrap max-w-xs">
-            {incident.correctiveActions}
+            {incident.correctiveActions ?? <span className="text-faint italic">Non renseigné</span>}
           </p>
         ),
-        searchValue: (incident) => incident.correctiveActions,
+        searchValue: (incident) => incident.correctiveActions ?? '',
       },
       {
         key: 'actions',
@@ -336,7 +355,11 @@ export function IncidentsView({ incidents, wasteItems, users, profile }: Inciden
         <form onSubmit={handleSubmit} className="bg-surface border border-subtle rounded-2xl p-6 space-y-4">
           <SectionHeader
             title={editId ? "Modifier l'incident" : 'Nouvelle déclaration'}
-            description={editId ? `Référence : ${editId}` : "Renseignez les circonstances de l'incident"}
+            description={
+              editId
+                ? `Référence : ${editId}`
+                : "Renseignez le type d'incident ; les autres champs peuvent être complétés plus tard"
+            }
           />
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -345,16 +368,15 @@ export function IncidentsView({ incidents, wasteItems, users, profile }: Inciden
               name="type"
               value={form.type}
               onChange={handleSelectChange}
-              options={INCIDENT_TYPES}
+              options={settings.incidentTypes}
               required
             />
             <FormSelect
-              label="Personnel impliqué"
+              label="Personnel impliqué (facultatif)"
               name="personnelFunction"
               value={form.personnelFunction}
               onChange={handleSelectChange}
               options={userNames}
-              required
             />
             <FormSelect
               label="Déchet concerné (facultatif)"
@@ -365,33 +387,30 @@ export function IncidentsView({ incidents, wasteItems, users, profile }: Inciden
             />
             <div className="hidden md:block" aria-hidden="true" />
             <FormInput
-              label="Dose initiale (µSv/h)"
+              label="Dose initiale (µSv/h) — facultatif"
               name="doseRateBefore"
               value={form.doseRateBefore}
               onChange={handleInputChange}
               type="number"
               step="any"
               min="0"
-              required
             />
             <FormInput
-              label="Dose finale (µSv/h)"
+              label="Dose finale (µSv/h) — facultatif"
               name="doseRateAfter"
               value={form.doseRateAfter}
               onChange={handleInputChange}
               type="number"
               step="any"
               min="0"
-              required
             />
           </div>
 
           <FormTextArea
-            label="Actions correctives"
+            label="Actions correctives (facultatif)"
             name="correctiveActions"
             value={form.correctiveActions}
             onChange={handleTextAreaChange}
-            required
             rows={3}
           />
 

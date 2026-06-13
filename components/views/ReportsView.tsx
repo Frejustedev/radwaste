@@ -351,7 +351,7 @@ function PrintAnnuel({ items, year, facility }: { items: WasteItem[]; year: numb
   for (const w of items) {
     const entry = summary.get(w.radionuclide) ?? { count: 0, totalActivity: 0 };
     entry.count += 1;
-    entry.totalActivity += Number.isFinite(w.initialActivity) ? w.initialActivity : 0;
+    entry.totalActivity += typeof w.initialActivity === 'number' ? w.initialActivity : 0;
     summary.set(w.radionuclide, entry);
   }
   const rows = Array.from(summary.entries());
