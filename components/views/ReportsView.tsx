@@ -9,6 +9,7 @@ import {
   theoreticalReleaseDate,
 } from '@/lib/physics/decay';
 import { SectionHeader } from '@/components/ui/Primitives';
+import { APP_VERSION, lastUpdatedFr } from '@/lib/version';
 
 type ReportName = 'REGISTRE' | 'MENSUEL' | 'ANNUEL' | 'INVENTAIRE';
 
@@ -210,6 +211,7 @@ function PrintHeader({ title, subtitle, facility }: { title: string; subtitle?: 
           <h1 className="mt-0.5 text-xl font-bold text-black">{title}</h1>
           {subtitle && <p className="mt-1 text-sm font-semibold text-black">{subtitle}</p>}
           <p className="mt-1 text-xs text-black">Document généré le {new Date().toLocaleString('fr-FR')}</p>
+          <p className="text-xs text-black">RadWaste IMENA — version {APP_VERSION} (mise à jour du {lastUpdatedFr()})</p>
         </div>
       </div>
     </div>

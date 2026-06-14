@@ -11,6 +11,7 @@ import { useRadwasteData } from '@/lib/hooks/useRadwasteData';
 import { useToast } from '@/components/ui/Toast';
 import { NavButton } from '@/components/ui/Primitives';
 import { Logo } from '@/components/ui/Logo';
+import { APP_VERSION, lastUpdatedFr } from '@/lib/version';
 import { canManageUsers, canManageSettings } from '@/lib/permissions';
 import { DashboardView } from '@/components/views/DashboardView';
 import { IdentificationView } from '@/components/views/IdentificationView';
@@ -114,6 +115,9 @@ export default function NuclearWasteApp() {
               Mot de passe oublié ?
             </button>
           </form>
+          <p className="mt-6 text-[11px] text-faint text-center">
+            Version {APP_VERSION} · Mise à jour le {lastUpdatedFr()}
+          </p>
         </div>
       </div>
     );
@@ -205,6 +209,9 @@ export default function NuclearWasteApp() {
               </div>
             </div>
           )}
+          <div className="px-6 py-3 shrink-0 text-[11px] text-faint border-t border-subtle">
+            Version {APP_VERSION} · MàJ {lastUpdatedFr()}
+          </div>
         </aside>
 
         <main className="flex-1 flex flex-col bg-app overflow-y-auto overflow-x-hidden print:overflow-visible print:bg-white">
