@@ -93,7 +93,7 @@ export function HelpView() {
         <Section icon={<ClipboardCheck className="h-5 w-5" />} title="3. Contrôle de Sortie & Élimination">
           <p>
             Avant toute élimination, la sortie est validée par une <strong>nouvelle mesure du débit de dose au contact</strong>
-            (qui doit être ≤ au seuil opérationnel). Vous renseignez le <strong>mode d&apos;élimination</strong>, le
+            (seuil de libération recommandé : <strong>&lt; 0,5 µSv/h</strong>). Vous renseignez le <strong>mode d&apos;élimination</strong>, le
             <strong> contrôleur</strong> et la date <strong>« Libéré le »</strong>.
           </p>
           <ul className="list-disc list-inside space-y-1">

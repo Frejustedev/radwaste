@@ -4,6 +4,7 @@ import React, { useMemo, useState } from 'react';
 import { ClipboardCheck } from 'lucide-react';
 import type { WasteItem, User, AppSettings } from '@/types';
 import { residualActivityMBq, evaluateExitControl } from '@/lib/physics/decay';
+import { EXIT_DOSE_RATE_THRESHOLD_USV_H } from '@/lib/physics/clearanceLevels';
 import { updateWasteItem } from '@/lib/repositories/wasteRepository';
 import { writeLog } from '@/lib/repositories/logRepository';
 import { useToast } from '@/components/ui/Toast';
@@ -252,15 +253,19 @@ export function SortieView({ wasteItems, users, profile, settings }: SortieViewP
         >
           <form onSubmit={handleSubmit} className="space-y-4">
             <FormInput
-              label="Débit de dose mesuré (µSv/h)"
+              label="Débit de dose mesuré au contact (µSv/h)"
               name="exitDoseRate"
               type="number"
               step="0.01"
               min="0"
               value={exitDoseRate}
               onChange={(e: React.ChangeEvent<HTMLInputElement>) => setExitDoseRate(e.target.value)}
+              placeholder={`Seuil de libération : < ${EXIT_DOSE_RATE_THRESHOLD_USV_H} µSv/h`}
               required
             />
+            <p className="text-xs text-faint -mt-2">
+              Seuil de libération recommandé : <span className="font-bold text-muted">&lt; {EXIT_DOSE_RATE_THRESHOLD_USV_H} µSv/h</span> (au contact).
+            </p>
 
             <FormSelect
               label="Mode d'élimination"
