@@ -58,7 +58,7 @@ export function SortieView({ wasteItems, users, profile, settings }: SortieViewP
   const parsedDose = exitDoseRate.trim() === '' ? Number.NaN : Number(exitDoseRate);
   const evaluation = useMemo(() => {
     if (!controlled || !Number.isFinite(parsedDose)) return null;
-    return evaluateExitControl(controlled, parsedDose);
+    return evaluateExitControl(controlled, parsedDose, undefined, controlled.releaseDoseThreshold ?? EXIT_DOSE_RATE_THRESHOLD_USV_H);
   }, [controlled, parsedDose]);
 
   const needsDerogation = evaluation !== null && !evaluation.meetsAllCriteria;
@@ -93,7 +93,7 @@ export function SortieView({ wasteItems, users, profile, settings }: SortieViewP
       return;
     }
 
-    const ev = evaluateExitControl(controlled, parsedDose);
+    const ev = evaluateExitControl(controlled, parsedDose, undefined, controlled.releaseDoseThreshold ?? EXIT_DOSE_RATE_THRESHOLD_USV_H);
     if (!ev.meetsAllCriteria && !derogationConfirmed) {
       error('Critères non satisfaits : confirmez la dérogation sous responsabilité de la PCR.');
       return;
@@ -260,11 +260,11 @@ export function SortieView({ wasteItems, users, profile, settings }: SortieViewP
               min="0"
               value={exitDoseRate}
               onChange={(e: React.ChangeEvent<HTMLInputElement>) => setExitDoseRate(e.target.value)}
-              placeholder={`Seuil de libération : < ${EXIT_DOSE_RATE_THRESHOLD_USV_H} µSv/h`}
+              placeholder={`Seuil de libération : < ${controlled.releaseDoseThreshold ?? EXIT_DOSE_RATE_THRESHOLD_USV_H} µSv/h`}
               required
             />
             <p className="text-xs text-faint -mt-2">
-              Seuil de libération recommandé : <span className="font-bold text-muted">&lt; {EXIT_DOSE_RATE_THRESHOLD_USV_H} µSv/h</span> (au contact).
+              Seuil de libération de ce déchet : <span className="font-bold text-muted">&lt; {controlled.releaseDoseThreshold ?? EXIT_DOSE_RATE_THRESHOLD_USV_H} µSv/h</span> (au contact).
             </p>
 
             <FormSelect

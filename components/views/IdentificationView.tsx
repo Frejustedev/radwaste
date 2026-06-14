@@ -46,6 +46,7 @@ interface FormState {
   measureDate: string;
   halfLife: string;
   clearanceLevelBqPerG: string;
+  releaseDoseThreshold: string;
   doseRateContact: string;
   doseRate1m: string;
   dailyElution: string;
@@ -64,6 +65,7 @@ function emptyForm(profile: User): FormState {
     measureDate: nowLocal16(),
     halfLife: '',
     clearanceLevelBqPerG: '',
+    releaseDoseThreshold: '0.5',
     doseRateContact: '',
     doseRate1m: '',
     dailyElution: '',
@@ -131,11 +133,14 @@ export function IdentificationView({ wasteItems, users, profile, settings }: Ide
     const { name, value } = e.target;
     if (name === 'radionuclide') {
       const rn = value as Radionuclide;
-      const half = value && value !== 'autres' ? referenceHalfLife(rn) : null;
+      const known = value !== '' && value !== 'autres';
+      const half = known ? referenceHalfLife(rn) : null;
+      const clearance = known ? referenceClearanceLevel(rn) : null;
       setForm((prev) => ({
         ...prev,
         radionuclide: value,
         halfLife: half === null ? (value === 'autres' ? '' : prev.halfLife) : String(half),
+        clearanceLevelBqPerG: clearance === null ? (value === 'autres' ? '' : prev.clearanceLevelBqPerG) : String(clearance),
       }));
       return;
     }
@@ -153,6 +158,7 @@ export function IdentificationView({ wasteItems, users, profile, settings }: Ide
       measureDate: item.measureDate ? toLocal16(item.measureDate) : '',
       halfLife: numToInput(item.halfLife),
       clearanceLevelBqPerG: numToInput(item.clearanceLevelBqPerG),
+      releaseDoseThreshold: item.releaseDoseThreshold != null ? String(item.releaseDoseThreshold) : '0.5',
       doseRateContact: numToInput(item.doseRateContact),
       doseRate1m: numToInput(item.doseRate1m),
       dailyElution: numToInput(item.dailyElution),
@@ -179,6 +185,7 @@ export function IdentificationView({ wasteItems, users, profile, settings }: Ide
       doseRateContact: form.doseRateContact,
       doseRate1m: form.doseRate1m,
       clearanceLevelBqPerG: form.clearanceLevelBqPerG,
+      releaseDoseThreshold: form.releaseDoseThreshold,
       dailyElution: form.dailyElution,
       dailyPatientCount: form.dailyPatientCount,
     });
@@ -212,6 +219,7 @@ export function IdentificationView({ wasteItems, users, profile, settings }: Ide
           doseRate1m: v.doseRate1m,
           halfLife: v.halfLife,
           clearanceLevelBqPerG: v.clearanceLevelBqPerG,
+          releaseDoseThreshold: v.releaseDoseThreshold,
           dailyElution: v.dailyElution,
           dailyPatientCount: v.dailyPatientCount,
           dailyExamTypes,
@@ -235,6 +243,7 @@ export function IdentificationView({ wasteItems, users, profile, settings }: Ide
           doseRate1m: v.doseRate1m,
           halfLife: v.halfLife,
           clearanceLevelBqPerG: v.clearanceLevelBqPerG,
+          releaseDoseThreshold: v.releaseDoseThreshold,
           storageEntryDate: NOW_ISO,
           storageResponsible: profile.name,
           expectedDecayDuration: v.halfLife !== undefined ? Math.ceil((10 * v.halfLife) / 24) : undefined,
@@ -503,7 +512,7 @@ export function IdentificationView({ wasteItems, users, profile, settings }: Ide
               error={fieldErrors.halfLife}
             />
             <FormInput
-              label="Niveau de libération (Bq/g) — optionnel"
+              label="Niveau de libération (Bq/g) — pré-rempli, modifiable"
               name="clearanceLevelBqPerG"
               value={form.clearanceLevelBqPerG}
               onChange={handleInputChange}
@@ -512,6 +521,16 @@ export function IdentificationView({ wasteItems, users, profile, settings }: Ide
               min="0"
               placeholder={clearancePlaceholder}
               error={fieldErrors.clearanceLevelBqPerG}
+            />
+            <FormInput
+              label="Seuil de débit de dose pour libération (µSv/h)"
+              name="releaseDoseThreshold"
+              value={form.releaseDoseThreshold}
+              onChange={handleInputChange}
+              type="number"
+              step="0.01"
+              min="0"
+              error={fieldErrors.releaseDoseThreshold}
             />
             <FormInput
               label="Débit de dose au contact (µSv/h) — optionnel"

@@ -25,6 +25,8 @@ export interface WasteItem {
   halfLife?: number; // demi-vie physique en heures
   // Niveau de libération en activité massique (Bq/g). Si absent, dérivé de la table du radionucléide.
   clearanceLevelBqPerG?: number;
+  // Seuil de débit de dose au contact pour autoriser la libération (µSv/h). Défaut 0,5 si absent.
+  releaseDoseThreshold?: number;
   // @deprecated — ancien seuil en MBq, conservé pour compatibilité ascendante uniquement.
   regulatoryClearanceLevel?: number;
 

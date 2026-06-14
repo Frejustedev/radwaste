@@ -34,6 +34,7 @@ export interface WasteFormValue {
   doseRateContact?: number;
   doseRate1m?: number;
   clearanceLevelBqPerG?: number;
+  releaseDoseThreshold?: number;
   measureDate?: string;
   dailyElution?: number;
   dailyPatientCount?: number;
@@ -55,6 +56,7 @@ export function validateWasteForm(input: {
   doseRateContact: string;
   doseRate1m: string;
   clearanceLevelBqPerG: string;
+  releaseDoseThreshold: string;
   dailyElution: string;
   dailyPatientCount: string;
 }): ValidationResult<WasteFormValue> {
@@ -77,6 +79,7 @@ export function validateWasteForm(input: {
   const doseRateContact = optionalNumber(input.doseRateContact, 'doseRateContact', 'Débit de dose au contact', true);
   const doseRate1m = optionalNumber(input.doseRate1m, 'doseRate1m', 'Débit de dose à 1 m', true);
   const clearanceLevelBqPerG = optionalNumber(input.clearanceLevelBqPerG, 'clearanceLevelBqPerG', 'Niveau de libération (Bq/g)');
+  const releaseDoseThreshold = optionalNumber(input.releaseDoseThreshold, 'releaseDoseThreshold', 'Seuil de débit de dose (µSv/h)');
   const dailyElution = optionalNumber(input.dailyElution, 'dailyElution', 'Élution du jour (MBq)', true);
   const dailyPatientCount = optionalNumber(input.dailyPatientCount, 'dailyPatientCount', 'Nombre de patients du jour', true);
 
@@ -100,6 +103,7 @@ export function validateWasteForm(input: {
       doseRateContact,
       doseRate1m,
       clearanceLevelBqPerG,
+      releaseDoseThreshold,
       measureDate,
       dailyElution,
       dailyPatientCount,
