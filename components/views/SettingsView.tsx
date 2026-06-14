@@ -1,11 +1,12 @@
 'use client';
 
 import React, { useMemo, useRef, useState } from 'react';
-import { Download, Upload, ScrollText, Palette, SlidersHorizontal, X, Plus, ExternalLink } from 'lucide-react';
+import { Download, Upload, ScrollText, Palette, SlidersHorizontal, X, Plus, ExternalLink, Trash2 } from 'lucide-react';
 import type { WasteItem, Incident, User, ActionLog, AppSettings } from '@/types';
 import { validateBackup, type ParsedBackup } from '@/lib/validation/schemas';
 import { buildBackup, restoreBackup } from '@/lib/repositories/backupRepository';
 import { saveSettings } from '@/lib/repositories/settingsRepository';
+import { resetOperationalData } from '@/lib/repositories/resetRepository';
 import { writeLog } from '@/lib/repositories/logRepository';
 import { useToast } from '@/components/ui/Toast';
 import { Modal } from '@/components/ui/Modal';
@@ -51,6 +52,7 @@ function formatLogDate(iso: string): string {
 }
 
 const CONFIRM_PHRASE = 'CONFIRMER';
+const RESET_PHRASE = 'REINITIALISER';
 
 export function SettingsView({ wasteItems, incidents, users, actionLogs, profile, settings }: SettingsViewProps) {
   const { success, error } = useToast();
@@ -63,6 +65,33 @@ export function SettingsView({ wasteItems, incidents, users, actionLogs, profile
   // Sauvegarde validée en attente de confirmation (null = modale fermée).
   const [pendingRestore, setPendingRestore] = useState<ParsedBackup | null>(null);
   const [confirmText, setConfirmText] = useState('');
+
+  // Réinitialisation de l'application.
+  const [showReset, setShowReset] = useState(false);
+  const [resetText, setResetText] = useState('');
+  const [isResetting, setIsResetting] = useState(false);
+
+  async function handleConfirmReset() {
+    if (isResetting) return;
+    if (resetText.trim().toUpperCase() !== RESET_PHRASE) {
+      error('Veuillez taper « REINITIALISER » pour confirmer.');
+      return;
+    }
+    setIsResetting(true);
+    try {
+      const r = await resetOperationalData(profile.hospitalId);
+      success(`Réinitialisation effectuée : ${r.wasteItems} déchet(s) et ${r.incidents} incident(s) supprimés.`);
+      await writeLog(profile.hospitalId, `RÉINITIALISATION de l'application par ${profile.name} : ${r.wasteItems} déchet(s) et ${r.incidents} incident(s) supprimés.`);
+      setShowReset(false);
+      setResetText('');
+    } catch {
+      error('Échec de la réinitialisation. Veuillez réessayer.');
+    } finally {
+      setIsResetting(false);
+    }
+  }
+
+  const resetReady = resetText.trim().toUpperCase() === RESET_PHRASE;
 
   // Les listes affichées dérivent directement de `settings` (temps réel) — pas d'état local à resynchroniser.
   // Champ texte « Ajouter » par catégorie.
@@ -414,7 +443,61 @@ export function SettingsView({ wasteItems, incidents, users, actionLogs, profile
             </a>
           </div>
         </div>
+
+        {/* Zone de réinitialisation (danger) */}
+        <div className="rounded-2xl border border-red-500/40 bg-red-500/5 p-6 space-y-4 lg:col-span-2">
+          <div className="flex items-center gap-3">
+            <span className="text-red-500" aria-hidden="true"><Trash2 className="w-5 h-5" /></span>
+            <h4 className="font-black italic uppercase text-red-500 text-sm">Zone de réinitialisation</h4>
+          </div>
+          <p className="text-xs text-muted">
+            Supprime <strong>tous les déchets et incidents</strong> pour repartir de zéro (lancement).
+            Les <strong>comptes utilisateurs</strong>, les <strong>paramètres</strong> et le <strong>journal d&apos;audit</strong> (inviolable) sont conservés.
+            Pensez à <strong>faire une sauvegarde</strong> au préalable. Action <strong>irréversible</strong>.
+          </p>
+          <button
+            type="button"
+            onClick={() => { setShowReset(true); setResetText(''); }}
+            className="inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-bold bg-red-500 text-white hover:opacity-90"
+          >
+            <Trash2 className="w-4 h-4" aria-hidden="true" />
+            Réinitialiser l&apos;application
+          </button>
+        </div>
       </div>
+
+      {showReset && (
+        <Modal open onClose={() => { if (!isResetting) { setShowReset(false); setResetText(''); } }} title="Réinitialiser l'application" subtitle="Action irréversible">
+          <div className="space-y-4">
+            <div className="rounded-lg border border-red-500/40 bg-red-500/10 p-3 space-y-2">
+              <p className="text-sm font-bold text-red-500">Attention :</p>
+              <ul className="list-disc list-inside text-xs text-red-500 space-y-1">
+                <li>Supprime définitivement <strong>{wasteItems.length}</strong> déchet(s) et <strong>{incidents.length}</strong> incident(s).</li>
+                <li>Conserve les comptes, les paramètres et le journal d&apos;audit.</li>
+                <li>Faites une sauvegarde avant si nécessaire — cette opération est irréversible.</li>
+              </ul>
+            </div>
+            <FormInput
+              label={`Tapez « ${RESET_PHRASE} » pour confirmer`}
+              name="resetText"
+              value={resetText}
+              onChange={(e: React.ChangeEvent<HTMLInputElement>) => setResetText(e.target.value)}
+              placeholder={RESET_PHRASE}
+              required
+            />
+            <div className="flex justify-end gap-2 pt-2">
+              <button type="button" onClick={() => { setShowReset(false); setResetText(''); }} disabled={isResetting}
+                className="px-4 py-2 rounded-lg text-sm font-bold text-muted hover:text-primary border border-subtle disabled:opacity-50">
+                Annuler
+              </button>
+              <button type="button" onClick={handleConfirmReset} disabled={!resetReady || isResetting}
+                className="px-4 py-2 rounded-lg text-sm font-bold bg-red-500 text-white hover:opacity-90 disabled:opacity-50">
+                {isResetting ? 'Réinitialisation…' : 'Tout réinitialiser'}
+              </button>
+            </div>
+          </div>
+        </Modal>
+      )}
 
       {pendingRestore && (
         <Modal
