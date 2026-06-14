@@ -35,6 +35,9 @@ export interface WasteFormValue {
   doseRate1m?: number;
   clearanceLevelBqPerG?: number;
   measureDate?: string;
+  dailyHospitalActivity?: number;
+  dailyElution?: number;
+  dailyPatientCount?: number;
 }
 
 /**
@@ -53,6 +56,9 @@ export function validateWasteForm(input: {
   doseRateContact: string;
   doseRate1m: string;
   clearanceLevelBqPerG: string;
+  dailyHospitalActivity: string;
+  dailyElution: string;
+  dailyPatientCount: string;
 }): ValidationResult<WasteFormValue> {
   const errors: FieldError[] = [];
 
@@ -73,6 +79,9 @@ export function validateWasteForm(input: {
   const doseRateContact = optionalNumber(input.doseRateContact, 'doseRateContact', 'Débit de dose au contact', true);
   const doseRate1m = optionalNumber(input.doseRate1m, 'doseRate1m', 'Débit de dose à 1 m', true);
   const clearanceLevelBqPerG = optionalNumber(input.clearanceLevelBqPerG, 'clearanceLevelBqPerG', 'Niveau de libération (Bq/g)');
+  const dailyHospitalActivity = optionalNumber(input.dailyHospitalActivity, 'dailyHospitalActivity', 'Activité hospitalière du jour (MBq)', true);
+  const dailyElution = optionalNumber(input.dailyElution, 'dailyElution', 'Élution du jour (MBq)', true);
+  const dailyPatientCount = optionalNumber(input.dailyPatientCount, 'dailyPatientCount', 'Nombre de patients du jour', true);
 
   let measureDate: string | undefined;
   if (isNonEmptyString(input.measureDate)) {
@@ -95,6 +104,9 @@ export function validateWasteForm(input: {
       doseRate1m,
       clearanceLevelBqPerG,
       measureDate,
+      dailyHospitalActivity,
+      dailyElution,
+      dailyPatientCount,
     },
   };
 }

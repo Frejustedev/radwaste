@@ -48,6 +48,10 @@ interface FormState {
   clearanceLevelBqPerG: string;
   doseRateContact: string;
   doseRate1m: string;
+  dailyHospitalActivity: string;
+  dailyElution: string;
+  dailyPatientCount: string;
+  dailyExamTypes: string[];
 }
 
 function emptyForm(profile: User): FormState {
@@ -63,6 +67,10 @@ function emptyForm(profile: User): FormState {
     clearanceLevelBqPerG: '',
     doseRateContact: '',
     doseRate1m: '',
+    dailyHospitalActivity: '',
+    dailyElution: '',
+    dailyPatientCount: '',
+    dailyExamTypes: [],
   };
 }
 
@@ -87,6 +95,16 @@ export function IdentificationView({ wasteItems, users, profile, settings }: Ide
   const radionuclideOptions = useMemo<string[]>(() => [...RADIONUCLIDE_OPTIONS], []);
   const originServiceOptions = useMemo<string[]>(() => settings.originServices, [settings.originServices]);
   const typeOptions = useMemo<string[]>(() => settings.wasteTypes, [settings.wasteTypes]);
+  const examTypeOptions = useMemo<string[]>(() => settings.examTypes, [settings.examTypes]);
+
+  function toggleExamType(exam: string) {
+    setForm((prev) => ({
+      ...prev,
+      dailyExamTypes: prev.dailyExamTypes.includes(exam)
+        ? prev.dailyExamTypes.filter((e) => e !== exam)
+        : [...prev.dailyExamTypes, exam],
+    }));
+  }
 
   const storageItems = useMemo<WasteItem[]>(
     () => wasteItems.filter((w) => w.status === 'stockage'),
@@ -139,6 +157,10 @@ export function IdentificationView({ wasteItems, users, profile, settings }: Ide
       clearanceLevelBqPerG: numToInput(item.clearanceLevelBqPerG),
       doseRateContact: numToInput(item.doseRateContact),
       doseRate1m: numToInput(item.doseRate1m),
+      dailyHospitalActivity: numToInput(item.dailyHospitalActivity),
+      dailyElution: numToInput(item.dailyElution),
+      dailyPatientCount: numToInput(item.dailyPatientCount),
+      dailyExamTypes: item.dailyExamTypes ?? [],
     });
     setFieldErrors({});
     setEditId(item.id);
@@ -160,6 +182,9 @@ export function IdentificationView({ wasteItems, users, profile, settings }: Ide
       doseRateContact: form.doseRateContact,
       doseRate1m: form.doseRate1m,
       clearanceLevelBqPerG: form.clearanceLevelBqPerG,
+      dailyHospitalActivity: form.dailyHospitalActivity,
+      dailyElution: form.dailyElution,
+      dailyPatientCount: form.dailyPatientCount,
     });
 
     if (!result.ok) {
@@ -175,6 +200,7 @@ export function IdentificationView({ wasteItems, users, profile, settings }: Ide
     setFieldErrors({});
     const v = result.value!;
     const responsibleOperator = form.responsibleOperator.trim() ? form.responsibleOperator : undefined;
+    const dailyExamTypes = form.dailyExamTypes.length > 0 ? form.dailyExamTypes : undefined;
     setIsSubmitting(true);
     try {
       if (editId) {
@@ -190,6 +216,10 @@ export function IdentificationView({ wasteItems, users, profile, settings }: Ide
           doseRate1m: v.doseRate1m,
           halfLife: v.halfLife,
           clearanceLevelBqPerG: v.clearanceLevelBqPerG,
+          dailyHospitalActivity: v.dailyHospitalActivity,
+          dailyElution: v.dailyElution,
+          dailyPatientCount: v.dailyPatientCount,
+          dailyExamTypes,
         });
         success('Déchet mis à jour.');
         await writeLog(profile.hospitalId, `Modification du déchet ${editId} (${form.radionuclide})`);
@@ -213,6 +243,10 @@ export function IdentificationView({ wasteItems, users, profile, settings }: Ide
           storageEntryDate: NOW_ISO,
           storageResponsible: profile.name,
           expectedDecayDuration: v.halfLife !== undefined ? Math.ceil((10 * v.halfLife) / 24) : undefined,
+          dailyHospitalActivity: v.dailyHospitalActivity,
+          dailyElution: v.dailyElution,
+          dailyPatientCount: v.dailyPatientCount,
+          dailyExamTypes,
         };
         const id = await createWasteItem(input);
         success('Déchet enregistré et placé en stockage.');
@@ -299,6 +333,30 @@ export function IdentificationView({ wasteItems, users, profile, settings }: Ide
       ),
       sortValue: (item) => item.initialActivity ?? 0,
       csvValue: (item) => (item.initialActivity !== undefined ? item.initialActivity : ''),
+    },
+    {
+      key: 'jour',
+      header: 'Activité du jour',
+      searchValue: (item) => (item.dailyExamTypes ?? []).join(' '),
+      csvValue: (item) => [
+        item.dailyPatientCount != null ? `Patients:${item.dailyPatientCount}` : '',
+        item.dailyHospitalActivity != null ? `ActJour:${item.dailyHospitalActivity}MBq` : '',
+        item.dailyElution != null ? `Elution:${item.dailyElution}MBq` : '',
+        item.dailyExamTypes?.length ? `Examens:${item.dailyExamTypes.join('/')}` : '',
+      ].filter(Boolean).join(' '),
+      render: (item) => {
+        const hasAny = item.dailyHospitalActivity != null || item.dailyElution != null
+          || item.dailyPatientCount != null || (item.dailyExamTypes?.length ?? 0) > 0;
+        if (!hasAny) return <span className="text-xs text-faint">—</span>;
+        return (
+          <div className="text-xs text-muted space-y-0.5">
+            {item.dailyPatientCount != null && <div>Patients : {item.dailyPatientCount}</div>}
+            {item.dailyHospitalActivity != null && <div>Act. jour : {item.dailyHospitalActivity} MBq</div>}
+            {item.dailyElution != null && <div>Élution : {item.dailyElution} MBq</div>}
+            {(item.dailyExamTypes?.length ?? 0) > 0 && <div>Examens : {item.dailyExamTypes!.join(', ')}</div>}
+          </div>
+        );
+      },
     },
     {
       key: 'statut',
@@ -483,7 +541,68 @@ export function IdentificationView({ wasteItems, users, profile, settings }: Ide
               min="0"
               error={fieldErrors.doseRate1m}
             />
+            <FormInput
+              label="Activité hospitalière du jour (MBq) — optionnel"
+              name="dailyHospitalActivity"
+              value={form.dailyHospitalActivity}
+              onChange={handleInputChange}
+              type="number"
+              step="any"
+              min="0"
+              error={fieldErrors.dailyHospitalActivity}
+            />
+            <FormInput
+              label="Élution du jour (MBq) — optionnel"
+              name="dailyElution"
+              value={form.dailyElution}
+              onChange={handleInputChange}
+              type="number"
+              step="any"
+              min="0"
+              error={fieldErrors.dailyElution}
+            />
+            <FormInput
+              label="Nombre de patients du jour — optionnel"
+              name="dailyPatientCount"
+              value={form.dailyPatientCount}
+              onChange={handleInputChange}
+              type="number"
+              step="1"
+              min="0"
+              error={fieldErrors.dailyPatientCount}
+            />
           </div>
+
+          <fieldset className="space-y-2">
+            <legend className="text-xs uppercase font-bold tracking-wide text-muted">
+              Types d&apos;examens du jour (optionnel — plusieurs choix possibles)
+            </legend>
+            <div className="flex flex-wrap gap-2">
+              {examTypeOptions.length === 0 ? (
+                <p className="text-xs text-faint">Aucun type d&apos;examen paramétré (voir Paramètres).</p>
+              ) : (
+                examTypeOptions.map((exam) => {
+                  const checked = form.dailyExamTypes.includes(exam);
+                  return (
+                    <label
+                      key={exam}
+                      className={`inline-flex items-center gap-2 px-3 py-1.5 rounded-full border cursor-pointer text-sm transition-colors ${
+                        checked ? 'bg-accent/15 border-accent text-primary' : 'bg-surface-2 border-subtle text-muted hover:text-primary'
+                      }`}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={checked}
+                        onChange={() => toggleExamType(exam)}
+                        className="accent-yellow-400"
+                      />
+                      {exam}
+                    </label>
+                  );
+                })
+              )}
+            </div>
+          </fieldset>
 
           <div className="flex items-center gap-3 pt-2">
             <button

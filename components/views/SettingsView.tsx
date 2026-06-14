@@ -23,7 +23,7 @@ interface SettingsViewProps {
 }
 
 /** Clés des listes paramétrables éditables. */
-type ListCategory = 'originServices' | 'wasteTypes' | 'eliminationModes' | 'incidentTypes';
+type ListCategory = 'originServices' | 'wasteTypes' | 'eliminationModes' | 'incidentTypes' | 'examTypes';
 
 /** Métadonnées d'affichage de chaque liste paramétrable. */
 const LIST_CATEGORIES: { key: ListCategory; label: string }[] = [
@@ -31,6 +31,7 @@ const LIST_CATEGORIES: { key: ListCategory; label: string }[] = [
   { key: 'wasteTypes', label: 'Types de déchets' },
   { key: 'eliminationModes', label: "Modes d'élimination" },
   { key: 'incidentTypes', label: "Types d'incidents" },
+  { key: 'examTypes', label: "Types d'examens du jour" },
 ];
 
 /** Date du jour au format AAAA-MM-JJ (fuseau local), pour nommer le fichier de sauvegarde. */
@@ -70,6 +71,7 @@ export function SettingsView({ wasteItems, incidents, users, actionLogs, profile
     wasteTypes: '',
     eliminationModes: '',
     incidentTypes: '',
+    examTypes: '',
   });
   // Catégorie en cours d'enregistrement (pour l'état de chargement / désactivation).
   const [savingCategory, setSavingCategory] = useState<ListCategory | null>(null);

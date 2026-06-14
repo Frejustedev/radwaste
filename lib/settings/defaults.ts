@@ -22,6 +22,10 @@ export const DEFAULT_INCIDENT_TYPES = [
   'Déversement accidentel', 'Contamination', 'Perte de déchet',
 ];
 
+export const DEFAULT_EXAM_TYPES = [
+  'Osseuse', 'Rénale', 'Thyroïde', 'Cardiaque', 'Parathyroïde',
+];
+
 /** Construit un AppSettings complet en comblant les listes absentes/vides par les valeurs par défaut. */
 export function withDefaults(hospitalId: string, partial?: Partial<AppSettings> | null): AppSettings {
   const nonEmpty = (a: unknown, fallback: string[]) =>
@@ -32,5 +36,6 @@ export function withDefaults(hospitalId: string, partial?: Partial<AppSettings> 
     wasteTypes: nonEmpty(partial?.wasteTypes, DEFAULT_WASTE_TYPES),
     eliminationModes: nonEmpty(partial?.eliminationModes, DEFAULT_ELIMINATION_MODES),
     incidentTypes: nonEmpty(partial?.incidentTypes, DEFAULT_INCIDENT_TYPES),
+    examTypes: nonEmpty(partial?.examTypes, DEFAULT_EXAM_TYPES),
   };
 }

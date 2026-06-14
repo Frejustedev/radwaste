@@ -31,6 +31,16 @@ function formatDateFr(iso: string | undefined, fallback = '-'): string {
   return d.toLocaleDateString('fr-FR');
 }
 
+/** Résumé compact du contexte d'activité du jour pour les rapports imprimés. */
+function formatDailyContext(w: WasteItem): string {
+  const parts: string[] = [];
+  if (w.dailyPatientCount != null) parts.push(`${w.dailyPatientCount} pat.`);
+  if (w.dailyHospitalActivity != null) parts.push(`Act. ${w.dailyHospitalActivity} MBq`);
+  if (w.dailyElution != null) parts.push(`Élu. ${w.dailyElution} MBq`);
+  if (w.dailyExamTypes?.length) parts.push(w.dailyExamTypes.join(', '));
+  return parts.length > 0 ? parts.join(' · ') : '-';
+}
+
 export function ReportsView({ wasteItems }: ReportsViewProps) {
   const [printReport, setPrintReport] = useState<ReportName | null>(null);
   const today = useMemo(() => new Date(), []);
@@ -236,6 +246,7 @@ function PrintRegistre({ wasteItems, facility }: { wasteItems: WasteItem[]; faci
               <th className={TH_CLASS}>Act. init (MBq)</th>
               <th className={TH_CLASS}>Statut</th>
               <th className={TH_CLASS}>Sortie</th>
+              <th className={TH_CLASS}>Activité du jour</th>
             </tr>
           </thead>
           <tbody>
@@ -247,6 +258,7 @@ function PrintRegistre({ wasteItems, facility }: { wasteItems: WasteItem[]; faci
                 <td className={TD_CLASS}>{w.initialActivity}</td>
                 <td className={TD_CLASS}>{w.status}</td>
                 <td className={TD_CLASS}>{formatDateFr(w.eliminationDate)}</td>
+                <td className={TD_CLASS}>{formatDailyContext(w)}</td>
               </tr>
             ))}
           </tbody>
