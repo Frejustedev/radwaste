@@ -4,7 +4,7 @@ import React, { useCallback, useMemo, useState } from 'react';
 import { signInWithEmailAndPassword, sendPasswordResetEmail } from 'firebase/auth';
 import {
   BarChart3, Package, Activity, Trash2, AlertTriangle, ClipboardCheck, Users, Settings,
-  HelpCircle, LogOut, Bell, Menu, X, Sun, Moon,
+  HelpCircle, LogOut, Bell, Menu, X, Sun, Moon, LineChart,
 } from 'lucide-react';
 import { auth, logout } from '@/lib/firebase';
 import { useRadwasteData } from '@/lib/hooks/useRadwasteData';
@@ -18,11 +18,12 @@ import { DecroissanceView } from '@/components/views/DecroissanceView';
 import { SortieView } from '@/components/views/SortieView';
 import { IncidentsView } from '@/components/views/IncidentsView';
 import { ReportsView } from '@/components/views/ReportsView';
+import { StatisticsView } from '@/components/views/StatisticsView';
 import { UsersView } from '@/components/views/UsersView';
 import { SettingsView } from '@/components/views/SettingsView';
 import { HelpView } from '@/components/views/HelpView';
 
-type Tab = 'dashboard' | 'identification' | 'decroissance' | 'sortie' | 'incidents' | 'reports' | 'users' | 'settings' | 'help';
+type Tab = 'dashboard' | 'identification' | 'decroissance' | 'sortie' | 'incidents' | 'reports' | 'statistiques' | 'users' | 'settings' | 'help';
 
 const TAB_TITLES: Record<Tab, string> = {
   dashboard: 'Tableau de Bord Général',
@@ -31,6 +32,7 @@ const TAB_TITLES: Record<Tab, string> = {
   sortie: 'Contrôle & Élimination',
   incidents: 'Registre des Incidents',
   reports: 'Rapports & Conformité',
+  statistiques: 'Statistiques & Études',
   users: 'Gestion des Utilisateurs',
   settings: 'Paramètres Système',
   help: 'Aide & Documentation',
@@ -186,6 +188,7 @@ export default function NuclearWasteApp() {
             <NavButton active={activeTab === 'sortie'} onClick={() => go('sortie')} icon={<Trash2 className="w-5 h-5" />} label="Sortie & Élimination" />
             <NavButton active={activeTab === 'incidents'} onClick={() => go('incidents')} icon={<AlertTriangle className="w-5 h-5" />} label="Gestion des Incidents" />
             <NavButton active={activeTab === 'reports'} onClick={() => go('reports')} icon={<ClipboardCheck className="w-5 h-5" />} label="Rapports Automatiques" />
+            <NavButton active={activeTab === 'statistiques'} onClick={() => go('statistiques')} icon={<LineChart className="w-5 h-5" />} label="Statistiques & Études" />
             {canManageUsers(profile) && <NavButton active={activeTab === 'users'} onClick={() => go('users')} icon={<Users className="w-5 h-5" />} label="Gestion Utilisateurs" />}
             <div className="text-[11px] uppercase tracking-widest text-faint font-bold mb-2 px-4 border-t border-subtle pt-4 mt-6">Système</div>
             {canManageSettings(profile) && <NavButton active={activeTab === 'settings'} onClick={() => go('settings')} icon={<Settings className="w-5 h-5" />} label="Paramètres" />}
@@ -215,6 +218,7 @@ export default function NuclearWasteApp() {
             {activeTab === 'sortie' && <SortieView wasteItems={wasteItems} users={users} profile={profile} settings={settings} />}
             {activeTab === 'incidents' && <IncidentsView incidents={incidents} wasteItems={wasteItems} users={users} profile={profile} settings={settings} />}
             {activeTab === 'reports' && <ReportsView wasteItems={wasteItems} />}
+            {activeTab === 'statistiques' && <StatisticsView wasteItems={wasteItems} incidents={incidents} profile={profile} settings={settings} theme={theme} />}
             {activeTab === 'users' && canManageUsers(profile) && <UsersView users={users} profile={profile} />}
             {activeTab === 'settings' && canManageSettings(profile) && <SettingsView wasteItems={wasteItems} incidents={incidents} users={users} actionLogs={actionLogs} profile={profile} settings={settings} />}
             {activeTab === 'help' && <HelpView />}

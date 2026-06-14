@@ -35,7 +35,6 @@ function formatDateFr(iso: string | undefined, fallback = '-'): string {
 function formatDailyContext(w: WasteItem): string {
   const parts: string[] = [];
   if (w.dailyPatientCount != null) parts.push(`${w.dailyPatientCount} pat.`);
-  if (w.dailyHospitalActivity != null) parts.push(`Act. ${w.dailyHospitalActivity} MBq`);
   if (w.dailyElution != null) parts.push(`Élu. ${w.dailyElution} MBq`);
   if (w.dailyExamTypes?.length) parts.push(w.dailyExamTypes.join(', '));
   return parts.length > 0 ? parts.join(' · ') : '-';

@@ -33,8 +33,7 @@ export interface WasteItem {
   storageResponsible?: string;
   expectedDecayDuration?: number; // en jours
 
-  // Contexte d'activité du jour (optionnel)
-  dailyHospitalActivity?: number; // activité hospitalière du jour (MBq)
+  // Activité hospitalière du jour (contexte, optionnel)
   dailyElution?: number; // élution du jour (MBq)
   dailyPatientCount?: number; // nombre de patients du jour
   dailyExamTypes?: string[]; // types d'examens réalisés le jour (multi-sélection)
