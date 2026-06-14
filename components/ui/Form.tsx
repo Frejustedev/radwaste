@@ -20,7 +20,7 @@ export function FormInput({ label, name, value, onChange, type = 'text', placeho
   const errorId = `${id}-error`;
   return (
     <div>
-      <label htmlFor={id} className="block text-xs uppercase font-bold tracking-wide text-muted mb-1">
+      <label htmlFor={id} className="block text-xs font-bold tracking-wide text-muted mb-1">
         {label}{required && <span className="text-red-500" aria-hidden="true"> *</span>}
       </label>
       <input
@@ -58,7 +58,7 @@ export function FormSelect({ label, name, value, onChange, options, required = f
   const errorId = `${id}-error`;
   return (
     <div>
-      <label htmlFor={id} className="block text-xs uppercase font-bold tracking-wide text-muted mb-1">
+      <label htmlFor={id} className="block text-xs font-bold tracking-wide text-muted mb-1">
         {label}{required && <span className="text-red-500" aria-hidden="true"> *</span>}
       </label>
       <select
@@ -93,7 +93,7 @@ export function FormTextArea({ label, name, value, onChange, required = false, r
   const id = useId();
   return (
     <div>
-      <label htmlFor={id} className="block text-xs uppercase font-bold tracking-wide text-muted mb-1">
+      <label htmlFor={id} className="block text-xs font-bold tracking-wide text-muted mb-1">
         {label}{required && <span className="text-red-500" aria-hidden="true"> *</span>}
       </label>
       <textarea

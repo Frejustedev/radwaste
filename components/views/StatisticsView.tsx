@@ -306,7 +306,7 @@ function StatTable({ title, headers, rows }: { title: string; headers: string[];
 function Metric({ label, value }: { label: string; value: string }) {
   return (
     <div>
-      <div className="text-xs text-muted uppercase tracking-wide">{label}</div>
+      <div className="text-xs text-muted tracking-wide">{label}</div>
       <div className="text-xl font-black italic text-primary tabular">{value}</div>
     </div>
   );

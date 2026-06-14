@@ -271,16 +271,18 @@ export function IncidentsView({ incidents, wasteItems, users, profile, settings 
       },
       {
         key: 'doses',
-        header: 'Doses (µSv/h)',
+        header: 'Doses',
         render: (incident) => (
           <div className="text-xs leading-snug">
             <div>
               <span className="text-muted">Initiale&nbsp;: </span>
               <span className="font-black italic text-red-500">{displayOrDash(incident.doseRateBefore)}</span>
+              <span className="text-muted"> µSv/h</span>
             </div>
             <div>
               <span className="text-muted">Finale&nbsp;: </span>
               <span className="font-black italic text-green-600">{displayOrDash(incident.doseRateAfter)}</span>
+              <span className="text-muted"> µSv/h</span>
             </div>
           </div>
         ),
