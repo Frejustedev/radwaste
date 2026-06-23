@@ -55,6 +55,9 @@ interface FormState {
   historicalEliminated: boolean;
   histElimDate: string;
   histElimMode: string;
+  histExitDose: string;
+  histController: string;
+  histConformity: string;
 }
 
 function emptyForm(profile: User): FormState {
@@ -77,6 +80,9 @@ function emptyForm(profile: User): FormState {
     historicalEliminated: false,
     histElimDate: nowLocal16(),
     histElimMode: '',
+    histExitDose: '',
+    histController: profile.name,
+    histConformity: 'Oui',
   };
 }
 
@@ -173,6 +179,9 @@ export function IdentificationView({ wasteItems, users, profile, settings }: Ide
       historicalEliminated: false,
       histElimDate: nowLocal16(),
       histElimMode: '',
+      histExitDose: '',
+      histController: profile.name,
+      histConformity: 'Oui',
     });
     setFieldErrors({});
     setEditId(item.id);
@@ -239,6 +248,8 @@ export function IdentificationView({ wasteItems, users, profile, settings }: Ide
         const NOW_ISO = new Date().toISOString();
         const hist = form.historicalEliminated;
         const elimIso = hist ? (form.histElimDate ? new Date(form.histElimDate).toISOString() : NOW_ISO) : undefined;
+        const histExitDoseNum = hist && form.histExitDose.trim() !== '' && Number.isFinite(Number(form.histExitDose))
+          ? Number(form.histExitDose) : undefined;
         const input: Omit<WasteItem, 'id' | 'registryNumber'> = {
           createdAt: NOW_ISO,
           hospitalId: profile.hospitalId,
@@ -265,9 +276,10 @@ export function IdentificationView({ wasteItems, users, profile, settings }: Ide
             eliminationDate: elimIso,
             exitControlDate: elimIso,
             eliminationMode: form.histElimMode || undefined,
-            eliminationResponsible: profile.name,
-            exitController: profile.name,
-            exitConformity: true,
+            exitDoseRate: histExitDoseNum,
+            eliminationResponsible: form.histController || profile.name,
+            exitController: form.histController || profile.name,
+            exitConformity: form.histConformity !== 'Non',
             exitSignedBy: profile.email,
           } : {}),
         };
@@ -661,6 +673,29 @@ export function IdentificationView({ wasteItems, users, profile, settings }: Ide
                     value={form.histElimMode}
                     onChange={handleSelectChange}
                     options={settings.eliminationModes}
+                  />
+                  <FormInput
+                    label="Débit de dose mesuré à la sortie (µSv/h)"
+                    name="histExitDose"
+                    type="number"
+                    step="0.01"
+                    min="0"
+                    value={form.histExitDose}
+                    onChange={handleInputChange}
+                  />
+                  <FormSelect
+                    label="Contrôleur de sortie"
+                    name="histController"
+                    value={form.histController}
+                    onChange={handleSelectChange}
+                    options={operatorOptions}
+                  />
+                  <FormSelect
+                    label="Conformité réglementaire"
+                    name="histConformity"
+                    value={form.histConformity}
+                    onChange={handleSelectChange}
+                    options={['Oui', 'Non']}
                   />
                 </div>
               )}
