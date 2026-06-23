@@ -158,7 +158,9 @@ service cloud.firestore {
     // Listes paramétrables par établissement (id du document = hospitalId)
     // ---------------------------------------------------------------
     match /appSettings/{settingsId} {
-      allow read: if isSignedIn() && sameHospital(resource.data);
+      // Lecture par identifiant de document (= hospitalId) : fonctionne même si le document
+      // n'existe pas encore (sinon sameHospital(resource.data) échoue sur resource null).
+      allow read: if isSignedIn() && settingsId == callerHospital() && callerHospital() != '';
       allow write: if isSignedIn() && isAdmin()
                       && settingsId == callerHospital()
                       && request.resource.data.hospitalId == callerHospital();
