@@ -76,11 +76,11 @@ export function HelpView() {
         <Section icon={<Activity className="h-5 w-5" />} title="2. Suivi de Décroissance">
           <p>
             Le système recalcule en continu l&apos;activité résiduelle de chaque déchet (loi A = A₀·0,5^(t/T½)).
-            Un déchet devient <strong>« libérable »</strong> uniquement lorsque <strong>deux critères sont réunis</strong> :
+            Un déchet devient <strong>« libérable »</strong> dès qu&apos;<strong>au moins l&apos;un des deux critères</strong> est rempli :
           </p>
           <ul className="list-disc list-inside space-y-1">
             <li>son <strong>activité massique</strong> (Bq/g) est passée <strong>sous le seuil de libération</strong> réglementaire du radionucléide ;</li>
-            <li><strong>au moins 10 périodes</strong> (demi-vies) se sont écoulées depuis la mesure de référence.</li>
+            <li><strong>ou</strong> <strong>au moins 10 périodes</strong> (demi-vies) se sont écoulées depuis la mesure de référence.</li>
           </ul>
           <p>
             Une <strong>alerte automatique</strong> (bannière jaune + indicateur « Seuil atteint ») signale les déchets prêts.
@@ -155,7 +155,7 @@ export function HelpView() {
             <li><strong>Activité massique</strong> : activité par unité de masse (Bq/g) — c&apos;est elle qui est comparée au seuil de libération.</li>
             <li><strong>Période (demi-vie)</strong> : durée au bout de laquelle l&apos;activité est divisée par deux.</li>
             <li><strong>Seuil de libération</strong> : activité massique (Bq/g) en dessous de laquelle un déchet peut être libéré de la zone contrôlée.</li>
-            <li><strong>Libérable</strong> : déchet ayant atteint les critères (activité massique sous le seuil + ≥ 10 périodes).</li>
+            <li><strong>Libérable</strong> : déchet remplissant au moins un critère (activité massique sous le seuil <strong>ou</strong> ≥ 10 périodes).</li>
             <li><strong>Non conforme</strong> : déchet sorti par dérogation alors qu&apos;un critère n&apos;était pas satisfait.</li>
             <li><strong>PCR</strong> : Personne Compétente en Radioprotection.</li>
           </ul>

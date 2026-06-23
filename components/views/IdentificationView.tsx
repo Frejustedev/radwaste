@@ -52,6 +52,9 @@ interface FormState {
   dailyElution: string;
   dailyPatientCount: string;
   dailyExamTypes: string[];
+  historicalEliminated: boolean;
+  histElimDate: string;
+  histElimMode: string;
 }
 
 function emptyForm(profile: User): FormState {
@@ -71,6 +74,9 @@ function emptyForm(profile: User): FormState {
     dailyElution: '',
     dailyPatientCount: '',
     dailyExamTypes: [],
+    historicalEliminated: false,
+    histElimDate: nowLocal16(),
+    histElimMode: '',
   };
 }
 
@@ -164,6 +170,9 @@ export function IdentificationView({ wasteItems, users, profile, settings }: Ide
       dailyElution: numToInput(item.dailyElution),
       dailyPatientCount: numToInput(item.dailyPatientCount),
       dailyExamTypes: item.dailyExamTypes ?? [],
+      historicalEliminated: false,
+      histElimDate: nowLocal16(),
+      histElimMode: '',
     });
     setFieldErrors({});
     setEditId(item.id);
@@ -228,12 +237,14 @@ export function IdentificationView({ wasteItems, users, profile, settings }: Ide
         await writeLog(profile.hospitalId, `Modification du déchet ${editId} (${form.radionuclide})`);
       } else {
         const NOW_ISO = new Date().toISOString();
+        const hist = form.historicalEliminated;
+        const elimIso = hist ? (form.histElimDate ? new Date(form.histElimDate).toISOString() : NOW_ISO) : undefined;
         const input: Omit<WasteItem, 'id' | 'registryNumber'> = {
           createdAt: NOW_ISO,
           hospitalId: profile.hospitalId,
           type: form.type as WasteType,
           radionuclide: form.radionuclide as Radionuclide,
-          status: 'stockage',
+          status: hist ? 'elimine' : 'stockage',
           originService: v.originService,
           responsibleOperator,
           initialActivity: v.initialActivity,
@@ -244,16 +255,27 @@ export function IdentificationView({ wasteItems, users, profile, settings }: Ide
           halfLife: v.halfLife,
           clearanceLevelBqPerG: v.clearanceLevelBqPerG,
           releaseDoseThreshold: v.releaseDoseThreshold,
-          storageEntryDate: NOW_ISO,
+          storageEntryDate: hist ? (v.measureDate ?? elimIso) : NOW_ISO,
           storageResponsible: profile.name,
           expectedDecayDuration: v.halfLife !== undefined ? Math.ceil((10 * v.halfLife) / 24) : undefined,
           dailyElution: v.dailyElution,
           dailyPatientCount: v.dailyPatientCount,
           dailyExamTypes,
+          ...(hist ? {
+            eliminationDate: elimIso,
+            exitControlDate: elimIso,
+            eliminationMode: form.histElimMode || undefined,
+            eliminationResponsible: profile.name,
+            exitController: profile.name,
+            exitConformity: true,
+            exitSignedBy: profile.email,
+          } : {}),
         };
         const id = await createWasteItem(input);
-        success('Déchet enregistré et placé en stockage.');
-        await writeLog(profile.hospitalId, `Enregistrement d'un déchet ${form.radionuclide} (id ${id})`);
+        success(hist ? 'Déchet historique enregistré comme éliminé.' : 'Déchet enregistré et placé en stockage.');
+        await writeLog(profile.hospitalId, hist
+          ? `Import historique : déchet ${form.radionuclide} enregistré comme ÉLIMINÉ (id ${id})`
+          : `Enregistrement d'un déchet ${form.radionuclide} (id ${id})`);
       }
       resetForm();
     } catch {
@@ -611,6 +633,39 @@ export function IdentificationView({ wasteItems, users, profile, settings }: Ide
               </div>
             </div>
           </fieldset>
+
+          {!editId && (
+            <fieldset className="space-y-3 rounded-xl border border-subtle p-4">
+              <legend className="px-2 text-xs uppercase font-bold tracking-wide text-accent">Import historique (optionnel)</legend>
+              <label className="flex items-start gap-2 text-sm text-primary cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={form.historicalEliminated}
+                  onChange={(e) => setForm((prev) => ({ ...prev, historicalEliminated: e.target.checked }))}
+                  className="mt-0.5 accent-yellow-400"
+                />
+                <span>Enregistrer ce déchet comme <strong>déjà éliminé</strong> (déchet ancien, sortie passée) — il n&apos;apparaîtra pas en stockage.</span>
+              </label>
+              {form.historicalEliminated && (
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <FormInput
+                    label="Date d'élimination réelle"
+                    name="histElimDate"
+                    type="datetime-local"
+                    value={form.histElimDate}
+                    onChange={handleInputChange}
+                  />
+                  <FormSelect
+                    label="Mode d'élimination"
+                    name="histElimMode"
+                    value={form.histElimMode}
+                    onChange={handleSelectChange}
+                    options={settings.eliminationModes}
+                  />
+                </div>
+              )}
+            </fieldset>
+          )}
 
           <div className="flex items-center gap-3 pt-2">
             <button

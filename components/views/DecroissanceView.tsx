@@ -219,8 +219,8 @@ export function DecroissanceView({ wasteItems, profile }: DecroissanceViewProps)
         <div role="alert" className="flex items-start gap-3 rounded-2xl border border-yellow-400/40 bg-yellow-400/10 p-4">
           <BellRing className="w-5 h-5 text-accent shrink-0 mt-0.5" aria-hidden="true" />
           <p className="text-sm text-primary">
-            <span className="font-bold">{readyIds.size} déchet(s)</span> ont atteint le seuil réglementaire de libération
-            (activité massique sous le seuil et au moins 10 périodes écoulées).
+            <span className="font-bold">{readyIds.size} déchet(s)</span> remplissent un critère de libération
+            (activité massique sous le seuil <span className="font-bold">ou</span> au moins 10 périodes écoulées).
             Cliquez sur <span className="font-bold">« Vérifier les Seuils »</span> pour les marquer comme libérables.
           </p>
         </div>

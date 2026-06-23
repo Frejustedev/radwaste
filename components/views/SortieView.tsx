@@ -5,7 +5,7 @@ import { ClipboardCheck } from 'lucide-react';
 import type { WasteItem, User, AppSettings } from '@/types';
 import { residualActivityMBq, evaluateExitControl } from '@/lib/physics/decay';
 import { EXIT_DOSE_RATE_THRESHOLD_USV_H } from '@/lib/physics/clearanceLevels';
-import { updateWasteItem } from '@/lib/repositories/wasteRepository';
+import { updateWasteItem, releaseWasteItems, bulkEliminate } from '@/lib/repositories/wasteRepository';
 import { writeLog } from '@/lib/repositories/logRepository';
 import { useToast } from '@/components/ui/Toast';
 import { Modal } from '@/components/ui/Modal';
@@ -53,6 +53,68 @@ export function SortieView({ wasteItems, users, profile, settings }: SortieViewP
   );
 
   const userNames = useMemo(() => users.map((u) => u.name), [users]);
+  const stockageItems = useMemo(() => wasteItems.filter((w) => w.status === 'stockage'), [wasteItems]);
+  const liberableItems = useMemo(() => wasteItems.filter((w) => w.status === 'liberable'), [wasteItems]);
+
+  // Actions en masse
+  const [isBulkReleasing, setIsBulkReleasing] = useState(false);
+  const [showBulkElim, setShowBulkElim] = useState(false);
+  const [bulkDate, setBulkDate] = useState('');
+  const [bulkMode, setBulkMode] = useState('');
+  const [bulkController, setBulkController] = useState(profile.name);
+  const [isBulkEliminating, setIsBulkEliminating] = useState(false);
+
+  async function handleBulkRelease() {
+    if (isBulkReleasing || stockageItems.length === 0) return;
+    if (!window.confirm(
+      `Libérer en masse les ${stockageItems.length} déchet(s) actuellement en stockage ?\n\n`
+      + `Cette action force le passage au statut « libérable » MÊME pour les déchets ne remplissant pas les critères (déconseillé). Elle est tracée dans le journal.`,
+    )) return;
+    setIsBulkReleasing(true);
+    try {
+      await releaseWasteItems(stockageItems.map((w) => w.id));
+      success(`${stockageItems.length} déchet(s) passé(s) au statut « libérable ».`);
+      await writeLog(profile.hospitalId, `LIBÉRATION EN MASSE (forcée) de ${stockageItems.length} déchet(s) par ${profile.name}.`);
+    } catch {
+      error('Échec de la libération en masse.');
+    } finally {
+      setIsBulkReleasing(false);
+    }
+  }
+
+  function openBulkElim() {
+    setBulkDate(nowLocal16());
+    setBulkMode('');
+    setBulkController(profile.name);
+    setShowBulkElim(true);
+  }
+
+  async function handleBulkEliminate() {
+    if (isBulkEliminating || liberableItems.length === 0) return;
+    if (!bulkMode) { error("Veuillez choisir un mode d'élimination."); return; }
+    const ts = bulkDate ? new Date(bulkDate) : new Date();
+    if (Number.isNaN(ts.getTime())) { error("Date d'élimination invalide."); return; }
+    const iso = ts.toISOString();
+    setIsBulkEliminating(true);
+    try {
+      await bulkEliminate(liberableItems.map((w) => w.id), {
+        exitControlDate: iso,
+        eliminationDate: iso,
+        eliminationMode: bulkMode,
+        exitController: bulkController,
+        eliminationResponsible: bulkController,
+        exitConformity: true,
+        exitSignedBy: profile.email,
+      });
+      success(`${liberableItems.length} déchet(s) éliminé(s).`);
+      await writeLog(profile.hospitalId, `ÉLIMINATION EN MASSE de ${liberableItems.length} déchet(s) par ${profile.name} (mode « ${bulkMode} », date ${formatIsoDate(iso)}).`);
+      setShowBulkElim(false);
+    } catch {
+      error("Échec de l'élimination en masse.");
+    } finally {
+      setIsBulkEliminating(false);
+    }
+  }
 
   // Évaluation en direct du contrôle de sortie (recalculée à chaque saisie du débit de dose).
   const parsedDose = exitDoseRate.trim() === '' ? Number.NaN : Number(exitDoseRate);
@@ -228,6 +290,27 @@ export function SortieView({ wasteItems, users, profile, settings }: SortieViewP
         description="Contrôle radiologique de sortie et traçabilité de l'élimination des déchets libérables."
       />
 
+      {/* Actions en masse */}
+      <div className="bg-surface border border-subtle rounded-2xl p-4 flex flex-wrap items-center gap-3">
+        <span className="text-xs text-muted">Actions en masse :</span>
+        <button
+          type="button"
+          onClick={handleBulkRelease}
+          disabled={isBulkReleasing || stockageItems.length === 0}
+          className="inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-bold border border-amber-500/60 text-amber-500 hover:bg-amber-500/10 disabled:opacity-50"
+        >
+          {isBulkReleasing ? 'Libération…' : `Libérer en masse (${stockageItems.length} en stockage)`}
+        </button>
+        <button
+          type="button"
+          onClick={openBulkElim}
+          disabled={liberableItems.length === 0}
+          className="inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-bold bg-accent text-black hover:opacity-90 disabled:opacity-50"
+        >
+          Éliminer en masse ({liberableItems.length} libérable{liberableItems.length > 1 ? 's' : ''})
+        </button>
+      </div>
+
       {rows.length === 0 ? (
         <div className="bg-surface border border-subtle rounded-2xl overflow-hidden">
           <EmptyState message="Aucun déchet libérable ou éliminé à afficher." />
@@ -347,6 +430,54 @@ export function SortieView({ wasteItems, users, profile, settings }: SortieViewP
               </button>
             </div>
           </form>
+        </Modal>
+      )}
+
+      {showBulkElim && (
+        <Modal open onClose={() => { if (!isBulkEliminating) setShowBulkElim(false); }} title="Éliminer en masse" subtitle={`${liberableItems.length} déchet(s) libérable(s)`}>
+          <div className="space-y-4">
+            <p className="text-xs text-muted">
+              Marque comme <strong>éliminés</strong> tous les déchets actuellement « libérables », avec une date, un mode
+              et un contrôleur communs. Pratique pour régulariser des éliminations passées (la date est modifiable).
+            </p>
+            <FormInput
+              label="Date d'élimination"
+              name="bulkDate"
+              type="datetime-local"
+              value={bulkDate}
+              onChange={(e: React.ChangeEvent<HTMLInputElement>) => setBulkDate(e.target.value)}
+              required
+            />
+            <FormSelect
+              label="Mode d'élimination"
+              name="bulkMode"
+              value={bulkMode}
+              onChange={(e: React.ChangeEvent<HTMLSelectElement>) => setBulkMode(e.target.value)}
+              options={settings.eliminationModes}
+              required
+            />
+            <FormSelect
+              label="Contrôleur / responsable"
+              name="bulkController"
+              value={bulkController}
+              onChange={(e: React.ChangeEvent<HTMLSelectElement>) => setBulkController(e.target.value)}
+              options={userNames}
+              required
+            />
+            <p className="text-xs text-faint">
+              Élimination signée électroniquement par <span className="text-muted font-medium">{profile.email ?? profile.name}</span>. Action tracée dans le journal.
+            </p>
+            <div className="flex justify-end gap-2 pt-2">
+              <button type="button" onClick={() => setShowBulkElim(false)} disabled={isBulkEliminating}
+                className="px-4 py-2 rounded-lg text-sm font-bold text-muted hover:text-primary border border-subtle disabled:opacity-50">
+                Annuler
+              </button>
+              <button type="button" onClick={handleBulkEliminate} disabled={isBulkEliminating || !bulkMode}
+                className="px-4 py-2 rounded-lg text-sm font-bold bg-accent text-black hover:opacity-90 disabled:opacity-50">
+                {isBulkEliminating ? 'Élimination…' : `Éliminer ${liberableItems.length} déchet(s)`}
+              </button>
+            </div>
+          </div>
         </Modal>
       )}
     </div>

@@ -44,10 +44,23 @@ export async function deleteWasteItem(id: string): Promise<void> {
   await batch.commit();
 }
 
-/** Passe une liste de déchets au statut « libérable » de façon atomique. */
+const BATCH_LIMIT = 450; // marge sous la limite Firestore de 500 opérations par lot
+
+/** Passe une liste de déchets au statut « libérable », par lots (gère >500 documents). */
 export async function releaseWasteItems(ids: string[]): Promise<void> {
-  if (ids.length === 0) return;
-  const batch = writeBatch(db);
-  ids.forEach((id) => batch.update(doc(db, COL, id), { status: 'liberable' }));
-  await batch.commit();
+  for (let i = 0; i < ids.length; i += BATCH_LIMIT) {
+    const batch = writeBatch(db);
+    ids.slice(i, i + BATCH_LIMIT).forEach((id) => batch.update(doc(db, COL, id), { status: 'liberable' }));
+    await batch.commit();
+  }
+}
+
+/** Passe une liste de déchets au statut « éliminé » avec des champs de sortie communs, par lots. */
+export async function bulkEliminate(ids: string[], fields: Partial<WasteItem>): Promise<void> {
+  const patch = stripUndefined({ ...fields, status: 'elimine' as const });
+  for (let i = 0; i < ids.length; i += BATCH_LIMIT) {
+    const batch = writeBatch(db);
+    ids.slice(i, i + BATCH_LIMIT).forEach((id) => batch.update(doc(db, COL, id), patch));
+    await batch.commit();
+  }
 }

@@ -112,10 +112,25 @@ describe('evaluateDecay', () => {
     expect(e.meetsStorageReleaseCriteria).toBe(true);
     expect(e.blockingReasons).toHaveLength(0);
   });
-  it('bloque si la masse est manquante', () => {
+  it('règle OU : libérable par les 10 périodes même si la masse manque', () => {
     const e = evaluateDecay(item({ mass: 0 }), after(180));
     expect(e.meetsMassicCriterion).toBe(false);
+    expect(e.meetsTenHalfLivesCriterion).toBe(true);
+    expect(e.meetsStorageReleaseCriteria).toBe(true);
+  });
+
+  it('règle OU : libérable par l\'activité massique même avant 10 périodes', () => {
+    // Activité initiale très faible : massique déjà sous le seuil à t=0, mais 0 période écoulée.
+    const e = evaluateDecay(item({ initialActivity: 0.05, mass: 1000 }), after(0));
+    expect(e.meetsMassicCriterion).toBe(true);
+    expect(e.meetsTenHalfLivesCriterion).toBe(false);
+    expect(e.meetsStorageReleaseCriteria).toBe(true);
+  });
+
+  it('non libérable si AUCUN des deux critères (masse manquante ET < 10 périodes)', () => {
+    const e = evaluateDecay(item({ mass: 0 }), after(6));
     expect(e.meetsStorageReleaseCriteria).toBe(false);
+    expect(e.blockingReasons.length).toBeGreaterThan(0);
   });
   it('signale un radionucléide « autres » sans seuil renseigné', () => {
     const e = evaluateDecay(item({ radionuclide: 'autres', clearanceLevelBqPerG: undefined }), after(180));

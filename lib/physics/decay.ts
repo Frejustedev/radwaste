@@ -92,7 +92,7 @@ export interface DecayEvaluation {
   releaseDate: Date | null;
   meetsMassicCriterion: boolean;
   meetsTenHalfLivesCriterion: boolean;
-  /** Critères de stockage réunis (massique + ≥ 10 périodes). Le contrôle du débit de dose se fait à la sortie. */
+  /** Critère de stockage rempli : activité massique sous le seuil OU ≥ 10 périodes. Le contrôle du débit de dose se fait à la sortie. */
   meetsStorageReleaseCriteria: boolean;
   blockingReasons: string[];
 }
@@ -108,16 +108,18 @@ export function evaluateDecay(item: WasteItem, now: Date = new Date()): DecayEva
   const reasons: string[] = [];
 
   const meetsMassicCriterion = massicBqPerG !== null && clearance !== null && massicBqPerG <= clearance;
-  if (massicBqPerG === null) reasons.push('Activité massique incalculable (activité, masse ou date de mesure manquante).');
-  if (clearance === null) reasons.push('Niveau de libération inconnu pour ce radionucléide (à renseigner).');
-  if (massicBqPerG !== null && clearance !== null && massicBqPerG > clearance) {
-    reasons.push('Activité massique résiduelle au-dessus du seuil de libération.');
-  }
-
   const meetsTenHalfLivesCriterion = halfLives !== null && halfLives >= MIN_HALF_LIVES_FOR_RELEASE;
-  if (halfLives === null) reasons.push('Nombre de périodes écoulées incalculable (demi-vie ou date de mesure manquante).');
-  else if (halfLives < MIN_HALF_LIVES_FOR_RELEASE) {
-    reasons.push(`Moins de ${MIN_HALF_LIVES_FOR_RELEASE} périodes écoulées (${halfLives.toFixed(1)}).`);
+  // Règle « OU » : une seule des deux conditions suffit à rendre le déchet libérable.
+  const meetsStorageReleaseCriteria = meetsMassicCriterion || meetsTenHalfLivesCriterion;
+
+  // Les motifs de blocage ne sont renseignés que si AUCUNE des deux conditions n'est remplie.
+  if (!meetsStorageReleaseCriteria) {
+    if (massicBqPerG === null) reasons.push('Activité massique incalculable (activité, masse ou date de mesure manquante).');
+    else if (clearance === null) reasons.push('Niveau de libération inconnu pour ce radionucléide (à renseigner).');
+    else reasons.push('Activité massique résiduelle au-dessus du seuil de libération.');
+
+    if (halfLives === null) reasons.push('Nombre de périodes écoulées incalculable (demi-vie ou date de mesure manquante).');
+    else reasons.push(`Moins de ${MIN_HALF_LIVES_FOR_RELEASE} périodes écoulées (${halfLives.toFixed(1)}).`);
   }
 
   return {
@@ -129,7 +131,7 @@ export function evaluateDecay(item: WasteItem, now: Date = new Date()): DecayEva
     releaseDate,
     meetsMassicCriterion,
     meetsTenHalfLivesCriterion,
-    meetsStorageReleaseCriteria: meetsMassicCriterion && meetsTenHalfLivesCriterion,
+    meetsStorageReleaseCriteria,
     blockingReasons: reasons,
   };
 }
