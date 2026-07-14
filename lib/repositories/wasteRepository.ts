@@ -55,6 +55,20 @@ export async function releaseWasteItems(ids: string[]): Promise<void> {
   }
 }
 
+/**
+ * Corrige en masse la date d'entrée en stockage (régularisation d'anciens enregistrements dont
+ * l'entrée avait été auto-remplie à la date de saisie).
+ */
+export async function bulkSetEntryDates(updates: { id: string; storageEntryDate: string }[]): Promise<void> {
+  for (let i = 0; i < updates.length; i += BATCH_LIMIT) {
+    const batch = writeBatch(db);
+    updates.slice(i, i + BATCH_LIMIT).forEach((u) => {
+      batch.update(doc(db, COL, u.id), { storageEntryDate: u.storageEntryDate });
+    });
+    await batch.commit();
+  }
+}
+
 /** Passe une liste de déchets au statut « éliminé » avec des champs de sortie communs, par lots. */
 export async function bulkEliminate(ids: string[], fields: Partial<WasteItem>): Promise<void> {
   const patch = stripUndefined({ ...fields, status: 'elimine' as const });

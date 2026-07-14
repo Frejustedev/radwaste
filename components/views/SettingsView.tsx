@@ -1,12 +1,13 @@
 'use client';
 
 import React, { useMemo, useRef, useState } from 'react';
-import { Download, Upload, ScrollText, Palette, SlidersHorizontal, X, Plus, ExternalLink, Trash2 } from 'lucide-react';
+import { Download, Upload, ScrollText, Palette, SlidersHorizontal, X, Plus, ExternalLink, Trash2, CalendarClock } from 'lucide-react';
 import type { WasteItem, Incident, User, ActionLog, AppSettings } from '@/types';
 import { validateBackup, type ParsedBackup } from '@/lib/validation/schemas';
 import { buildBackup, restoreBackup } from '@/lib/repositories/backupRepository';
 import { saveSettings } from '@/lib/repositories/settingsRepository';
 import { resetOperationalData } from '@/lib/repositories/resetRepository';
+import { bulkSetEntryDates } from '@/lib/repositories/wasteRepository';
 import { writeLog } from '@/lib/repositories/logRepository';
 import { useToast } from '@/components/ui/Toast';
 import { Modal } from '@/components/ui/Modal';
@@ -92,6 +93,47 @@ export function SettingsView({ wasteItems, incidents, users, actionLogs, profile
   }
 
   const resetReady = resetText.trim().toUpperCase() === RESET_PHRASE;
+
+  // --- Maintenance : dates d'entrée incohérentes (sortie antérieure à l'entrée) ---
+  const [isFixingDates, setIsFixingDates] = useState(false);
+
+  const dateIssues = useMemo(() => {
+    const fixable: { id: string; storageEntryDate: string }[] = [];
+    const manual: string[] = [];
+    for (const w of wasteItems) {
+      if (!w.storageEntryDate || !w.eliminationDate) continue;
+      const entry = new Date(w.storageEntryDate).getTime();
+      const exit = new Date(w.eliminationDate).getTime();
+      if (Number.isNaN(entry) || Number.isNaN(exit) || exit >= entry) continue; // déjà cohérent
+      const measure = w.measureDate ? new Date(w.measureDate).getTime() : NaN;
+      if (!Number.isNaN(measure) && measure <= exit) {
+        // La date de mesure précède la sortie : elle rétablit la cohérence entrée < sortie.
+        fixable.push({ id: w.id, storageEntryDate: new Date(measure).toISOString() });
+      } else {
+        manual.push(w.registryNumber ?? w.id);
+      }
+    }
+    return { fixable, manual, total: fixable.length + manual.length };
+  }, [wasteItems]);
+
+  async function handleFixEntryDates() {
+    if (isFixingDates || dateIssues.fixable.length === 0) return;
+    if (!window.confirm(
+      `Corriger la date d'entrée en stockage de ${dateIssues.fixable.length} déchet(s) ?\n\n`
+      + `La date d'entrée sera remplacée par la DATE DE MESURE du déchet (qui précède sa sortie), afin de rétablir la cohérence « entrée < sortie ».\n\n`
+      + `Action irréversible mais tracée dans le journal d'audit.`,
+    )) return;
+    setIsFixingDates(true);
+    try {
+      await bulkSetEntryDates(dateIssues.fixable);
+      success(`${dateIssues.fixable.length} date(s) d'entrée corrigée(s).`);
+      await writeLog(profile.hospitalId, `CORRECTION EN MASSE des dates d'entrée : ${dateIssues.fixable.length} déchet(s) — date d'entrée = date de mesure (par ${profile.name}).`);
+    } catch {
+      error('Échec de la correction des dates.');
+    } finally {
+      setIsFixingDates(false);
+    }
+  }
 
   // Les listes affichées dérivent directement de `settings` (temps réel) — pas d'état local à resynchroniser.
   // Champ texte « Ajouter » par catégorie.
@@ -442,6 +484,49 @@ export function SettingsView({ wasteItems, incidents, users, actionLogs, profile
               imena.ci
             </a>
           </div>
+        </div>
+
+        {/* Maintenance des données */}
+        <div className="bg-surface border border-subtle rounded-2xl p-6 space-y-4 lg:col-span-2">
+          <div className="flex items-center gap-3">
+            <span className="text-accent" aria-hidden="true"><CalendarClock className="w-5 h-5" /></span>
+            <h4 className="font-black italic uppercase text-primary text-sm">Maintenance des données</h4>
+          </div>
+
+          {dateIssues.total === 0 ? (
+            <p className="text-xs text-muted">
+              ✅ Aucune incohérence de dates détectée : toutes les dates de sortie sont postérieures aux dates d&apos;entrée.
+            </p>
+          ) : (
+            <>
+              <p className="text-xs text-muted">
+                <strong className="text-amber-500">{dateIssues.total} déchet(s)</strong> ont une <strong>date de sortie antérieure à leur date d&apos;entrée</strong>
+                {' '}(l&apos;entrée avait été auto-remplie à la date de saisie, alors que la sortie a été antidatée).
+              </p>
+              <ul className="text-xs text-muted list-disc list-inside space-y-1">
+                <li>
+                  <strong className="text-primary">{dateIssues.fixable.length}</strong> corrigeable(s) automatiquement :
+                  la <strong>date d&apos;entrée</strong> sera remplacée par la <strong>date de mesure</strong> (qui précède la sortie).
+                </li>
+                {dateIssues.manual.length > 0 && (
+                  <li>
+                    <strong className="text-amber-500">{dateIssues.manual.length}</strong> à revoir <strong>manuellement</strong>
+                    {' '}(la date de mesure est elle-même postérieure à la sortie) :{' '}
+                    <span className="font-mono text-faint break-all">{dateIssues.manual.slice(0, 12).join(', ')}{dateIssues.manual.length > 12 ? '…' : ''}</span>
+                  </li>
+                )}
+              </ul>
+              <button
+                type="button"
+                onClick={handleFixEntryDates}
+                disabled={isFixingDates || dateIssues.fixable.length === 0}
+                className="inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-bold bg-accent text-black hover:opacity-90 disabled:opacity-50"
+              >
+                <CalendarClock className="w-4 h-4" aria-hidden="true" />
+                {isFixingDates ? 'Correction…' : `Corriger ${dateIssues.fixable.length} date(s) d'entrée`}
+              </button>
+            </>
+          )}
         </div>
 
         {/* Zone de réinitialisation (danger) */}
