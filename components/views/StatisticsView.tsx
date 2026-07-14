@@ -7,7 +7,7 @@ import {
 } from 'recharts';
 import { Download, FileSpreadsheet, FileJson, Printer, Boxes, Activity, CheckCircle2, ShieldAlert, AlertTriangle, Users2 } from 'lucide-react';
 import type { WasteItem, Incident, User, AppSettings } from '@/types';
-import { residualActivityMBq } from '@/lib/physics/decay';
+import { residualActivityMBq, massicActivityBqPerG, theoreticalReleaseDate } from '@/lib/physics/decay';
 import { computeStats, statsToCsvRows } from '@/lib/stats/compute';
 import { downloadCsv } from '@/lib/export/csv';
 import { writeLog } from '@/lib/repositories/logRepository';
@@ -28,6 +28,13 @@ function fmtDate(iso?: string): string {
   if (!iso) return '';
   const d = new Date(iso);
   return Number.isNaN(d.getTime()) ? '' : d.toLocaleDateString('fr-FR');
+}
+
+/** Date + heure (les dates réglementaires doivent conserver l'heure). */
+function fmtDateTime(iso?: string): string {
+  if (!iso) return '';
+  const d = new Date(iso);
+  return Number.isNaN(d.getTime()) ? '' : d.toLocaleString('fr-FR');
 }
 
 export function StatisticsView({ wasteItems, incidents, profile, settings, theme }: StatisticsViewProps) {
@@ -84,24 +91,51 @@ export function StatisticsView({ wasteItems, incidents, profile, settings, theme
 
   function handleExportDataCsv() {
     const headers = [
-      'ID', 'N° registre', 'Créé le', 'Type', 'Radionucléide', 'Statut', "Service d'origine", 'Opérateur',
-      'Activité init (MBq)', 'Masse (g)', 'Demi-vie (h)', 'Date mesure', 'Activité résiduelle (MBq)',
-      'Patients du jour', 'Élution du jour (MBq)', 'Examens du jour', 'Date entrée', 'Date sortie',
-      "Mode d'élimination", 'Conformité', 'Contrôleur',
+      // Identification
+      'ID technique', 'N° registre', 'Créé le', 'Statut', 'Type', 'Radionucléide',
+      "Service d'origine", 'Opérateur responsable',
+      // Radioactivité
+      'Activité initiale (MBq)', 'Masse (g)', 'Demi-vie (h)', 'Date et heure de mesure',
+      'Activité résiduelle calculée (MBq)', 'Activité massique calculée (Bq/g)',
+      'Débit de dose au contact (µSv/h)', 'Débit de dose à 1 m (µSv/h)',
+      'Niveau de libération (Bq/g)', 'Seuil de dose pour libération (µSv/h)',
+      'Date théorique de libération',
+      // Activité hospitalière du jour
+      'Patients du jour', 'Élution du jour (MBq)', 'Examens du jour',
+      // Stockage
+      'Date entrée en stockage', 'Responsable du stockage',
+      // Sortie / élimination
+      'Date du contrôle de sortie', 'Débit de dose à la sortie (µSv/h)', 'Date de sortie / élimination',
+      "Mode d'élimination", 'Conformité', 'Contrôleur de sortie', "Responsable de l'élimination",
+      'Signature électronique (compte)',
     ];
     const rows = filteredWaste.map((w) => {
       const res = residualActivityMBq(w);
+      const massic = massicActivityBqPerG(w);
+      const releaseDate = theoreticalReleaseDate(w);
       return [
-        w.registryNumber ?? w.id, w.registryNumber ?? '', fmtDate(w.createdAt), w.type, w.radionuclide, w.status,
+        // Identification
+        w.id, w.registryNumber ?? '', fmtDate(w.createdAt), w.status, w.type, w.radionuclide,
         w.originService ?? '', w.responsibleOperator ?? '',
-        w.initialActivity ?? '', w.mass ?? '', w.halfLife ?? '', fmtDate(w.measureDate), res !== null ? res.toFixed(4) : '',
+        // Radioactivité
+        w.initialActivity ?? '', w.mass ?? '', w.halfLife ?? '', fmtDateTime(w.measureDate),
+        res !== null ? res.toFixed(4) : '', massic !== null ? massic.toExponential(3) : '',
+        w.doseRateContact ?? '', w.doseRate1m ?? '',
+        w.clearanceLevelBqPerG ?? '', w.releaseDoseThreshold ?? '',
+        releaseDate ? releaseDate.toLocaleDateString('fr-FR') : '',
+        // Activité du jour
         w.dailyPatientCount ?? '', w.dailyElution ?? '', (w.dailyExamTypes ?? []).join(' / '),
-        fmtDate(w.storageEntryDate), fmtDate(w.eliminationDate), w.eliminationMode ?? '',
-        w.status === 'elimine' ? (w.exitConformity === false ? 'Dérogation' : 'Conforme') : '', w.exitController ?? '',
+        // Stockage
+        fmtDateTime(w.storageEntryDate), w.storageResponsible ?? '',
+        // Sortie
+        fmtDateTime(w.exitControlDate), w.exitDoseRate ?? '', fmtDateTime(w.eliminationDate),
+        w.eliminationMode ?? '',
+        w.status === 'elimine' ? (w.exitConformity === false ? 'Dérogation' : 'Conforme') : '',
+        w.exitController ?? '', w.eliminationResponsible ?? '', w.exitSignedBy ?? '',
       ].map(String);
     });
     downloadCsv('donnees_dechets_radwaste.csv', headers, rows);
-    success('Données déchets exportées (CSV / Excel).');
+    success(`Données exportées : ${rows.length} déchet(s), ${headers.length} colonnes.`);
     void writeLog(profile.hospitalId, 'Export des données déchets (CSV).');
   }
 

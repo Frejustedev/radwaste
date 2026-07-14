@@ -2,7 +2,7 @@
 
 import React, { useMemo, useState } from 'react';
 import { Plus, Trash2, Edit2, X } from 'lucide-react';
-import type { WasteItem, User, AppSettings, Radionuclide, WasteType } from '@/types';
+import type { WasteItem, User, AppSettings, Radionuclide, WasteType, WasteStatus } from '@/types';
 import { validateWasteForm } from '@/lib/validation/schemas';
 import {
   RADIONUCLIDE_OPTIONS,
@@ -36,6 +36,20 @@ function numToInput(n: number | undefined): string {
   return n === undefined ? '' : String(n);
 }
 
+/** Convertit une valeur d'input datetime-local en ISO, ou undefined si vide/invalide. */
+function parseLocalIso(value: string): string | undefined {
+  if (!value.trim()) return undefined;
+  const d = new Date(value);
+  return Number.isNaN(d.getTime()) ? undefined : d.toISOString();
+}
+
+/** Convertit une saisie numérique en nombre, ou undefined si vide/invalide. */
+function parseNum(value: string): number | undefined {
+  if (!value.trim()) return undefined;
+  const n = Number(value);
+  return Number.isFinite(n) ? n : undefined;
+}
+
 interface FormState {
   originService: string;
   responsibleOperator: string;
@@ -47,6 +61,7 @@ interface FormState {
   halfLife: string;
   clearanceLevelBqPerG: string;
   releaseDoseThreshold: string;
+  storageEntryDate: string;
   doseRateContact: string;
   doseRate1m: string;
   dailyElution: string;
@@ -72,6 +87,7 @@ function emptyForm(profile: User): FormState {
     halfLife: '',
     clearanceLevelBqPerG: '',
     releaseDoseThreshold: '0.5',
+    storageEntryDate: nowLocal16(),
     doseRateContact: '',
     doseRate1m: '',
     dailyElution: '',
@@ -102,6 +118,9 @@ export function IdentificationView({ wasteItems, users, profile, settings }: Ide
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
   const [deletingId, setDeletingId] = useState<string | null>(null);
+  // Statut du déchet en cours d'édition (permet de compléter aussi les déchets libérés/éliminés).
+  const [editStatus, setEditStatus] = useState<WasteStatus | null>(null);
+  const [statusFilter, setStatusFilter] = useState<'tous' | 'stockage' | 'liberable' | 'elimine'>('tous');
 
   const operatorOptions = useMemo<string[]>(() => users.map((u) => u.name), [users]);
   const radionuclideOptions = useMemo<string[]>(() => [...RADIONUCLIDE_OPTIONS], []);
@@ -118,9 +137,11 @@ export function IdentificationView({ wasteItems, users, profile, settings }: Ide
     }));
   }
 
-  const storageItems = useMemo<WasteItem[]>(
-    () => wasteItems.filter((w) => w.status === 'stockage'),
-    [wasteItems],
+  // Tous les déchets sont affichables/éditables (y compris libérés et éliminés) afin de
+  // pouvoir compléter a posteriori les données manquantes (activité, masse, dates…).
+  const visibleItems = useMemo<WasteItem[]>(
+    () => (statusFilter === 'tous' ? wasteItems : wasteItems.filter((w) => w.status === statusFilter)),
+    [wasteItems, statusFilter],
   );
 
   const clearancePlaceholder = useMemo<string>(() => {
@@ -133,6 +154,7 @@ export function IdentificationView({ wasteItems, users, profile, settings }: Ide
     setForm(emptyForm(profile));
     setFieldErrors({});
     setEditId(null);
+    setEditStatus(null);
     setIsAdding(false);
   }
 
@@ -176,15 +198,18 @@ export function IdentificationView({ wasteItems, users, profile, settings }: Ide
       dailyElution: numToInput(item.dailyElution),
       dailyPatientCount: numToInput(item.dailyPatientCount),
       dailyExamTypes: item.dailyExamTypes ?? [],
+      storageEntryDate: item.storageEntryDate ? toLocal16(item.storageEntryDate) : nowLocal16(),
       historicalEliminated: false,
-      histElimDate: nowLocal16(),
-      histElimMode: '',
-      histExitDose: '',
-      histController: profile.name,
-      histConformity: 'Oui',
+      // Données de sortie existantes (pour compléter/corriger un déchet déjà libéré ou éliminé).
+      histElimDate: item.eliminationDate ? toLocal16(item.eliminationDate) : nowLocal16(),
+      histElimMode: item.eliminationMode ?? '',
+      histExitDose: item.exitDoseRate != null ? String(item.exitDoseRate) : '',
+      histController: item.exitController ?? profile.name,
+      histConformity: item.exitConformity === false ? 'Non' : 'Oui',
     });
     setFieldErrors({});
     setEditId(item.id);
+    setEditStatus(item.status);
     setIsAdding(true);
   }
 
@@ -225,6 +250,8 @@ export function IdentificationView({ wasteItems, users, profile, settings }: Ide
     setIsSubmitting(true);
     try {
       if (editId) {
+        const isOut = editStatus === 'liberable' || editStatus === 'elimine';
+        const elimIsoEdit = parseLocalIso(form.histElimDate);
         await updateWasteItem(editId, {
           type: form.type as WasteType,
           radionuclide: form.radionuclide as Radionuclide,
@@ -238,12 +265,23 @@ export function IdentificationView({ wasteItems, users, profile, settings }: Ide
           halfLife: v.halfLife,
           clearanceLevelBqPerG: v.clearanceLevelBqPerG,
           releaseDoseThreshold: v.releaseDoseThreshold,
+          storageEntryDate: parseLocalIso(form.storageEntryDate),
           dailyElution: v.dailyElution,
           dailyPatientCount: v.dailyPatientCount,
           dailyExamTypes,
+          // Données de sortie : modifiables même une fois le déchet libéré / éliminé.
+          ...(isOut ? {
+            eliminationDate: elimIsoEdit,
+            exitControlDate: elimIsoEdit,
+            eliminationMode: form.histElimMode || undefined,
+            exitDoseRate: parseNum(form.histExitDose),
+            exitController: form.histController || undefined,
+            eliminationResponsible: form.histController || undefined,
+            exitConformity: form.histConformity !== 'Non',
+          } : {}),
         });
         success('Déchet mis à jour.');
-        await writeLog(profile.hospitalId, `Modification du déchet ${editId} (${form.radionuclide})`);
+        await writeLog(profile.hospitalId, `Modification du déchet ${editId} (${form.radionuclide})${isOut ? ' — données de sortie incluses' : ''}`);
       } else {
         const NOW_ISO = new Date().toISOString();
         const hist = form.historicalEliminated;
@@ -266,7 +304,7 @@ export function IdentificationView({ wasteItems, users, profile, settings }: Ide
           halfLife: v.halfLife,
           clearanceLevelBqPerG: v.clearanceLevelBqPerG,
           releaseDoseThreshold: v.releaseDoseThreshold,
-          storageEntryDate: hist ? (v.measureDate ?? elimIso) : NOW_ISO,
+          storageEntryDate: parseLocalIso(form.storageEntryDate) ?? (hist ? (v.measureDate ?? elimIso) : NOW_ISO),
           storageResponsible: profile.name,
           expectedDecayDuration: v.halfLife !== undefined ? Math.ceil((10 * v.halfLife) / 24) : undefined,
           dailyElution: v.dailyElution,
@@ -536,6 +574,13 @@ export function IdentificationView({ wasteItems, users, profile, settings }: Ide
               error={fieldErrors.measureDate}
             />
             <FormInput
+              label="Date d'entrée en stockage"
+              name="storageEntryDate"
+              value={form.storageEntryDate}
+              onChange={handleInputChange}
+              type="datetime-local"
+            />
+            <FormInput
               label="Demi-vie physique (h) — optionnel"
               name="halfLife"
               value={form.halfLife}
@@ -702,6 +747,55 @@ export function IdentificationView({ wasteItems, users, profile, settings }: Ide
             </fieldset>
           )}
 
+          {editId && (editStatus === 'liberable' || editStatus === 'elimine') && (
+            <fieldset className="space-y-3 rounded-xl border border-subtle p-4">
+              <legend className="px-2 text-xs uppercase font-bold tracking-wide text-accent">Données de sortie / élimination</legend>
+              <p className="text-xs text-faint">
+                Ce déchet est déjà <strong>{editStatus === 'elimine' ? 'éliminé' : 'libérable'}</strong> : vous pouvez
+                compléter ou corriger ses données de sortie (utile pour régulariser d&apos;anciens enregistrements).
+              </p>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <FormInput
+                  label="Date de sortie / élimination"
+                  name="histElimDate"
+                  type="datetime-local"
+                  value={form.histElimDate}
+                  onChange={handleInputChange}
+                />
+                <FormSelect
+                  label="Mode d'élimination"
+                  name="histElimMode"
+                  value={form.histElimMode}
+                  onChange={handleSelectChange}
+                  options={settings.eliminationModes}
+                />
+                <FormInput
+                  label="Débit de dose mesuré à la sortie (µSv/h)"
+                  name="histExitDose"
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  value={form.histExitDose}
+                  onChange={handleInputChange}
+                />
+                <FormSelect
+                  label="Contrôleur de sortie"
+                  name="histController"
+                  value={form.histController}
+                  onChange={handleSelectChange}
+                  options={operatorOptions}
+                />
+                <FormSelect
+                  label="Conformité réglementaire"
+                  name="histConformity"
+                  value={form.histConformity}
+                  onChange={handleSelectChange}
+                  options={['Oui', 'Non']}
+                />
+              </div>
+            </fieldset>
+          )}
+
           <div className="flex items-center gap-3 pt-2">
             <button
               type="submit"
@@ -728,19 +822,37 @@ export function IdentificationView({ wasteItems, users, profile, settings }: Ide
       )}
 
       <div className="bg-surface border border-subtle rounded-2xl p-5 space-y-4">
-        <div className="flex items-center gap-2">
-          <h3 className="text-sm font-bold uppercase text-primary">Déchets en stockage</h3>
-          <span className="text-xs text-muted">({storageItems.length})</span>
+        <div className="flex flex-wrap items-center gap-3">
+          <h3 className="text-sm font-bold uppercase text-primary">Déchets</h3>
+          <span className="text-xs text-muted">({visibleItems.length})</span>
+          <div className="ml-auto flex items-center gap-2">
+            <label htmlFor="status-filter" className="text-xs text-muted">Statut :</label>
+            <select
+              id="status-filter"
+              value={statusFilter}
+              onChange={(e) => setStatusFilter(e.target.value as typeof statusFilter)}
+              className="px-3 py-1.5 bg-surface-2 border border-subtle rounded-lg text-primary text-sm"
+            >
+              <option value="tous">Tous</option>
+              <option value="stockage">En stockage</option>
+              <option value="liberable">Libérable</option>
+              <option value="elimine">Éliminé</option>
+            </select>
+          </div>
         </div>
+        <p className="text-xs text-faint">
+          Le bouton « Modifier » fonctionne sur <strong>tous</strong> les déchets, y compris ceux déjà libérés ou
+          éliminés — pour compléter a posteriori les données manquantes (activité, masse, dates, sortie…).
+        </p>
 
         <DataTable
           columns={columns}
-          rows={storageItems}
+          rows={visibleItems}
           getRowKey={(r) => r.id}
           searchPlaceholder="Rechercher (ID, type, isotope, opérateur)…"
           pageSize={10}
-          emptyMessage="Aucun déchet en stockage pour le moment."
-          exportFileName="dechets_stockage"
+          emptyMessage="Aucun déchet à afficher."
+          exportFileName="dechets"
         />
       </div>
     </div>
