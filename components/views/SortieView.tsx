@@ -3,7 +3,7 @@
 import React, { useMemo, useState } from 'react';
 import { ClipboardCheck } from 'lucide-react';
 import type { WasteItem, User, AppSettings } from '@/types';
-import { residualActivityMBq, evaluateExitControl } from '@/lib/physics/decay';
+import { residualActivityMBq, evaluateExitControl, netExitDoseRate, evaluateConformity } from '@/lib/physics/decay';
 import { EXIT_DOSE_RATE_THRESHOLD_USV_H } from '@/lib/physics/clearanceLevels';
 import { updateWasteItem, releaseWasteItems, bulkEliminate } from '@/lib/repositories/wasteRepository';
 import { writeLog } from '@/lib/repositories/logRepository';
@@ -35,12 +35,52 @@ function nowLocal16(): string {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
 
+/** Mesure facultative : `undefined` si le champ est vide ou non exploitable (jamais bloquant). */
+function optionalMeasure(raw: string): number | undefined {
+  if (raw.trim() === '') return undefined;
+  const n = Number(raw);
+  return Number.isFinite(n) && n >= 0 ? n : undefined;
+}
+
+/** Libellé de la conformité calculée, pour le tri, la recherche et l'export CSV. */
+function computedConformityLabel(item: WasteItem): string {
+  const { conforme } = evaluateConformity(item);
+  if (conforme === null) return 'Indéterminé';
+  return conforme ? 'Conforme' : 'Non conforme';
+}
+
+/** Conformité CALCULÉE (activité massique ≤ seuil ET indice ≥ 1) — indicateur de preuve, jamais le statut. */
+function ConformityBadge({ item }: { item: WasteItem }) {
+  const { conforme, missing } = evaluateConformity(item);
+  if (conforme === null) {
+    return (
+      <span
+        className="px-2 py-1 text-[11px] font-bold rounded-full bg-slate-500/20 text-slate-500"
+        title={missing.length > 0 ? `Données manquantes : ${missing.join(', ')}` : undefined}
+      >
+        Indéterminé
+      </span>
+    );
+  }
+  return (
+    <span
+      className={`px-2 py-1 text-[11px] font-bold rounded-full ${
+        conforme ? 'bg-green-500/20 text-green-600' : 'bg-red-500/20 text-red-500'
+      }`}
+    >
+      {conforme ? 'Conforme' : 'Non conforme'}
+    </span>
+  );
+}
+
 export function SortieView({ wasteItems, users, profile, settings }: SortieViewProps) {
   const { success, error } = useToast();
 
   // Item en cours de contrôle (null = modale fermée).
   const [controlled, setControlled] = useState<WasteItem | null>(null);
   const [exitDoseRate, setExitDoseRate] = useState('');
+  const [exitBackground, setExitBackground] = useState('');
+  const [exitDoseRate1m, setExitDoseRate1m] = useState('');
   const [eliminationMode, setEliminationMode] = useState('');
   const [exitController, setExitController] = useState(profile.name);
   const [releaseDate, setReleaseDate] = useState(''); // « Libéré le » — modifiable (ex. saisie d'anciens déchets)
@@ -62,6 +102,9 @@ export function SortieView({ wasteItems, users, profile, settings }: SortieViewP
   const [bulkDate, setBulkDate] = useState('');
   const [bulkMode, setBulkMode] = useState('');
   const [bulkController, setBulkController] = useState(profile.name);
+  const [bulkDoseRate, setBulkDoseRate] = useState('');
+  const [bulkBackground, setBulkBackground] = useState('');
+  const [bulkDoseRate1m, setBulkDoseRate1m] = useState('');
   const [isBulkEliminating, setIsBulkEliminating] = useState(false);
 
   async function handleBulkRelease() {
@@ -86,6 +129,9 @@ export function SortieView({ wasteItems, users, profile, settings }: SortieViewP
     setBulkDate(nowLocal16());
     setBulkMode('');
     setBulkController(profile.name);
+    setBulkDoseRate('');
+    setBulkBackground('');
+    setBulkDoseRate1m('');
     setShowBulkElim(true);
   }
 
@@ -103,6 +149,9 @@ export function SortieView({ wasteItems, users, profile, settings }: SortieViewP
         eliminationMode: bulkMode,
         exitController: bulkController,
         eliminationResponsible: bulkController,
+        exitDoseRate: optionalMeasure(bulkDoseRate),
+        exitBackgroundDoseRate: optionalMeasure(bulkBackground),
+        exitDoseRate1m: optionalMeasure(bulkDoseRate1m),
         exitConformity: true,
         exitSignedBy: profile.email,
       });
@@ -125,9 +174,19 @@ export function SortieView({ wasteItems, users, profile, settings }: SortieViewP
 
   const needsDerogation = evaluation !== null && !evaluation.meetsAllCriteria;
 
+  // Débit net du bruit de fond : information de terrain destinée à la PCR. Le verdict automatique
+  // (evaluateExitControl) reste volontairement fondé sur la mesure BRUTE au contact.
+  const exitBackgroundValue = optionalMeasure(exitBackground);
+  const netExit =
+    Number.isFinite(parsedDose) && exitBackgroundValue !== undefined
+      ? netExitDoseRate({ exitDoseRate: parsedDose, exitBackgroundDoseRate: exitBackgroundValue })
+      : null;
+
   function openControl(item: WasteItem) {
     setControlled(item);
     setExitDoseRate('');
+    setExitBackground('');
+    setExitDoseRate1m('');
     setEliminationMode('');
     setExitController(profile.name);
     setReleaseDate(nowLocal16());
@@ -177,6 +236,8 @@ export function SortieView({ wasteItems, users, profile, settings }: SortieViewP
         status: 'elimine',
         exitControlDate: releaseIso,
         exitDoseRate: Number(parsedDose),
+        exitBackgroundDoseRate: optionalMeasure(exitBackground),
+        exitDoseRate1m: optionalMeasure(exitDoseRate1m),
         exitConformity,
         exitController,
         exitSignedBy: profile.email, // signature électronique : compte authentifié
@@ -241,6 +302,18 @@ export function SortieView({ wasteItems, users, profile, settings }: SortieViewP
         sortValue: (w) => w.status,
         csvValue: (w) => w.status,
         render: (w) => <StatusBadge status={w.status} />,
+      },
+      {
+        key: 'conformity',
+        header: 'Conformité calculée',
+        sortValue: (w) => computedConformityLabel(w),
+        searchValue: (w) => computedConformityLabel(w),
+        csvValue: (w) => {
+          const { conforme, missing } = evaluateConformity(w);
+          if (conforme !== null) return conforme ? 'Conforme' : 'Non conforme';
+          return missing.length > 0 ? `Indéterminé (manque : ${missing.join(' ; ')})` : 'Indéterminé';
+        },
+        render: (w) => <ConformityBadge item={w} />,
       },
       {
         key: 'control',
@@ -336,7 +409,7 @@ export function SortieView({ wasteItems, users, profile, settings }: SortieViewP
         >
           <form onSubmit={handleSubmit} className="space-y-4">
             <FormInput
-              label="Débit de dose mesuré au contact (µSv/h)"
+              label="Débit de dose de sortie AU CONTACT (µSv/h)"
               name="exitDoseRate"
               type="number"
               step="0.01"
@@ -349,6 +422,35 @@ export function SortieView({ wasteItems, users, profile, settings }: SortieViewP
             <p className="text-xs text-faint -mt-2">
               Seuil de libération de ce déchet : <span className="font-bold text-muted">&lt; {controlled.releaseDoseThreshold ?? EXIT_DOSE_RATE_THRESHOLD_USV_H} µSv/h</span> (au contact).
             </p>
+
+            <FormInput
+              label="Bruit de fond du local (µSv/h)"
+              name="exitBackgroundDoseRate"
+              type="number"
+              step="0.01"
+              min="0"
+              value={exitBackground}
+              onChange={(e: React.ChangeEvent<HTMLInputElement>) => setExitBackground(e.target.value)}
+              placeholder="Facultatif"
+            />
+            {netExit !== null && (
+              <p className="text-xs text-faint -mt-2">
+                Débit de sortie net du bruit de fond : <span className="font-bold text-muted">{netExit.toFixed(2)} µSv/h</span>.
+                C&apos;est cette valeur nette que la PCR compare au seuil de libération. Le verdict automatique
+                ci-dessous reste, lui, fondé sur la mesure brute au contact.
+              </p>
+            )}
+
+            <FormInput
+              label="Débit de dose de sortie à 1 m (µSv/h)"
+              name="exitDoseRate1m"
+              type="number"
+              step="0.01"
+              min="0"
+              value={exitDoseRate1m}
+              onChange={(e: React.ChangeEvent<HTMLInputElement>) => setExitDoseRate1m(e.target.value)}
+              placeholder="Facultatif"
+            />
 
             <FormSelect
               label="Mode d'élimination"
@@ -463,6 +565,40 @@ export function SortieView({ wasteItems, users, profile, settings }: SortieViewP
               onChange={(e: React.ChangeEvent<HTMLSelectElement>) => setBulkController(e.target.value)}
               options={userNames}
               required
+            />
+            <p className="text-xs text-faint">
+              Mesures de sortie facultatives, appliquées telles quelles à <strong>tout le lot</strong> : ne les renseignez
+              que si une mesure commune a réellement été relevée.
+            </p>
+            <FormInput
+              label="Débit de dose de sortie AU CONTACT (µSv/h)"
+              name="bulkDoseRate"
+              type="number"
+              step="0.01"
+              min="0"
+              value={bulkDoseRate}
+              onChange={(e: React.ChangeEvent<HTMLInputElement>) => setBulkDoseRate(e.target.value)}
+              placeholder="Facultatif"
+            />
+            <FormInput
+              label="Bruit de fond du local (µSv/h)"
+              name="bulkBackground"
+              type="number"
+              step="0.01"
+              min="0"
+              value={bulkBackground}
+              onChange={(e: React.ChangeEvent<HTMLInputElement>) => setBulkBackground(e.target.value)}
+              placeholder="Facultatif"
+            />
+            <FormInput
+              label="Débit de dose de sortie à 1 m (µSv/h)"
+              name="bulkDoseRate1m"
+              type="number"
+              step="0.01"
+              min="0"
+              value={bulkDoseRate1m}
+              onChange={(e: React.ChangeEvent<HTMLInputElement>) => setBulkDoseRate1m(e.target.value)}
+              placeholder="Facultatif"
             />
             <p className="text-xs text-faint">
               Élimination signée électroniquement par <span className="text-muted font-medium">{profile.email ?? profile.name}</span>. Action tracée dans le journal.

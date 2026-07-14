@@ -3,7 +3,7 @@
 import React from 'react';
 import {
   LifeBuoy, PackageCheck, Activity, ClipboardCheck, AlertTriangle, BarChart3,
-  FileText, Settings, Users, BookOpen, ShieldAlert, Mail,
+  FileText, Settings, Users, BookOpen, ShieldAlert, Mail, Calculator,
 } from 'lucide-react';
 import { SectionHeader } from '@/components/ui/Primitives';
 
@@ -21,6 +21,15 @@ function Section({ icon, title, children }: { icon: React.ReactNode; title: stri
       </h3>
       <div className="mt-3 space-y-2 text-sm leading-relaxed text-muted">{children}</div>
     </section>
+  );
+}
+
+/** Formule du dictionnaire de données, présentée telle qu'elle est appliquée par le calcul. */
+function Formula({ children }: { children: React.ReactNode }) {
+  return (
+    <div className="overflow-x-auto rounded-lg border border-subtle bg-surface-2 px-3 py-2 font-mono text-xs text-primary">
+      {children}
+    </div>
   );
 }
 
@@ -125,10 +134,17 @@ export function HelpView() {
         <Section icon={<FileText className="h-5 w-5" />} title="6. Rapports & Registres">
           <p>Génération de documents réglementaires imprimables (PDF via l&apos;impression du navigateur) :</p>
           <ul className="list-disc list-inside space-y-1">
-            <li><strong>Registre réglementaire</strong> : historique complet de tous les déchets.</li>
-            <li><strong>Rapport mensuel / annuel</strong> : éliminations sur une période sélectionnable (synthèse par radionucléide pour l&apos;annuel).</li>
-            <li><strong>Inventaire du stock</strong> : déchets présents avec activité résiduelle et date de libération prévue.</li>
+            <li><strong>Registre réglementaire</strong> : historique complet de tous les déchets, avec masses, activité massique et verdict de conformité calculé.</li>
+            <li><strong>Rapport mensuel / annuel</strong> : éliminations sur une période sélectionnable (synthèse par radionucléide pour l&apos;annuel), suivies des <strong>fiches de preuve de conformité</strong> — une par déchet.</li>
+            <li><strong>Inventaire du stock</strong> : déchets présents avec activité résiduelle, activité massique, t_lib et date de libération prévue.</li>
           </ul>
+          <p>
+            Les fiches de preuve reprennent toutes les mesures relevées (masse brute, tare, masse nette, bruit de fond,
+            débits de dose d&apos;entrée et de sortie au contact et à 1 m) et tous les indicateurs calculés (activité
+            massique, niveau de libération, t_lib, durée de stockage, indice de conformité, verdict). Une donnée non
+            relevée laisse la case vide (un tiret) : <strong>aucune valeur n&apos;est présumée</strong>, jamais un zéro
+            (voir §9).
+          </p>
           <p>Les tableaux des modules proposent aussi un <strong>export CSV</strong> (compatible Excel) et la recherche/tri/pagination.</p>
         </Section>
 
@@ -149,13 +165,97 @@ export function HelpView() {
           </p>
         </Section>
 
+        <Section icon={<Calculator className="h-5 w-5" />} title="9. Champs de mesure & formules de conformité">
+          <p>
+            Le <strong>dictionnaire de données v2</strong> impose une chaîne de calcul complète, de la pesée du colis
+            au verdict de conformité. Les champs ci-dessous sont <strong>tous facultatifs</strong> — mais chacun
+            manquant rend le verdict <strong>indéterminable</strong>.
+          </p>
+
+          <p className="pt-1 font-semibold text-primary">Champs relevés (saisis)</p>
+          <ul className="list-disc list-inside space-y-1">
+            <li><strong>Masse brute</strong> (g) : pesée du colis entier, contenant compris.</li>
+            <li><strong>Tare du contenant</strong> (g) : masse du sac ou du fût vide. Si elle n&apos;est pas renseignée, la masse brute tient lieu de masse nette.</li>
+            <li><strong>Bruit de fond du local</strong> (µSv/h) : relevé <strong>à la mesure d&apos;entrée</strong> et de nouveau <strong>au contrôle de sortie</strong>.</li>
+            <li><strong>Débits de dose</strong> (µSv/h) : <strong>au contact</strong> et <strong>à 1 mètre</strong>, à l&apos;entrée puis à la sortie. La mesure à 1 m documente l&apos;exposition du personnel qui manipule le colis.</li>
+          </ul>
+
+          <p className="pt-1 font-semibold text-primary">Formules (calculées, jamais saisies)</p>
+          <div className="space-y-2">
+            <Formula>masse nette = masse brute − tare</Formula>
+            <Formula>activité massique (Bq/g) = activité résiduelle (MBq) × 1e6 / masse nette</Formula>
+            <Formula>
+              t_lib (h) = (T½ / ln2) × ln[ A0 × 1e6 / (niveau de libération × masse nette) ]
+              <br />
+              soit, pour le Tc-99m : 8,666 × ln[ A0 × 1e6 / (100 × masse nette) ]
+            </Formula>
+            <Formula>durée de stockage (h) = date de sortie − date d&apos;entrée en stockage</Formula>
+            <Formula>indice de conformité = durée de stockage / t_lib</Formula>
+            <Formula>conforme = activité massique ≤ niveau de libération  ET  indice de conformité ≥ 1</Formula>
+          </div>
+          <ul className="list-disc list-inside space-y-1">
+            <li><strong>t_lib</strong> est la durée théorique de décroissance nécessaire pour que l&apos;activité massique atteigne le niveau de libération. Elle vaut <strong>0</strong> si le déchet est déjà sous le seuil dès la mesure initiale.</li>
+            <li>Un <strong>indice de conformité ≥ 1</strong> signifie que le déchet a bien été gardé <strong>au moins aussi longtemps</strong> que la décroissance l&apos;exigeait.</li>
+          </ul>
+
+          <p className="pt-1 font-semibold text-primary">Pourquoi « conforme » est CALCULÉ et jamais saisi</p>
+          <p>
+            La conformité n&apos;est pas une case que l&apos;on coche : c&apos;est la <strong>conclusion</strong> des mesures.
+            L&apos;application ne propose donc aucun champ « conforme » — elle le <strong>déduit</strong> des données
+            enregistrées. Il devient ainsi <strong>structurellement impossible de déclarer une conformité non
+            démontrée</strong> : tant qu&apos;une donnée du calcul manque (activité, masse nette, demi-vie, niveau de
+            libération, date d&apos;entrée, date de sortie), le verdict affiché est <strong>« Indéterminé »</strong> —
+            jamais « conforme » par défaut — et la liste des données manquantes est indiquée.
+          </p>
+
+          <p className="pt-1 font-semibold text-primary">Conformité (preuve) ≠ statut « libérable » (opérationnel)</p>
+          <p>Ce sont deux notions distinctes, affichées côte à côte et jamais substituées l&apos;une à l&apos;autre :</p>
+          <ul className="list-disc list-inside space-y-1">
+            <li>
+              le <strong>verdict de conformité</strong> est une <strong>preuve documentaire a posteriori</strong>, sur
+              règle <strong>ET</strong> : activité massique sous le seuil <strong>ET</strong> indice de conformité ≥ 1.
+              Il figure dans les rapports imprimés (registre, mensuel, annuel) et dans les fiches de preuve ;
+            </li>
+            <li>
+              le <strong>statut « libérable »</strong> est une <strong>décision opérationnelle</strong> de l&apos;application,
+              sur règle <strong>OU</strong> : activité massique sous le seuil <strong>ou</strong> au moins 10 périodes
+              écoulées (voir §2). Il déclenche l&apos;alerte et ouvre le contrôle de sortie.
+            </li>
+          </ul>
+          <p>
+            Un déchet peut donc être <strong>« libérable »</strong> (10 périodes écoulées) tout en restant
+            <strong> « indéterminé »</strong> au sens de la preuve si, par exemple, la masse nette n&apos;a jamais été pesée.
+          </p>
+
+          <p className="pt-1 font-semibold text-primary">Pourquoi relever le bruit de fond du local</p>
+          <p>
+            Un débit de dose de sortie <strong>ne veut rien dire sans son bruit de fond</strong> : une mesure de
+            0,4 µSv/h dans un local dont le fond est à 0,35 µSv/h ne traduit presque aucune contamination résiduelle,
+            alors que la même valeur dans un local à 0,05 µSv/h en traduit une. C&apos;est le <strong>débit net</strong>
+            (mesure − bruit de fond) qui porte l&apos;information ; il est calculé et imprimé sur les fiches de preuve.
+            Sans le bruit de fond enregistré, la mesure de sortie n&apos;est pas défendable devant un inspecteur.
+          </p>
+
+          <p className="rounded-lg border border-yellow-400/40 bg-yellow-400/10 p-3 text-primary">
+            <strong>Rappel :</strong> les <strong>niveaux de libération</strong> utilisés par ces formules sont
+            <strong> indicatifs</strong>. Ils doivent être <strong>vérifiés et validés par la PCR</strong> / le
+            physicien médical au regard de la réglementation nationale avant tout usage opérationnel. Un niveau propre
+            à l&apos;établissement peut être saisi par déchet ; il prime alors sur la valeur de référence.
+          </p>
+        </Section>
+
         <Section icon={<BookOpen className="h-5 w-5" />} title="Glossaire">
           <ul className="space-y-1.5">
             <li><strong>Activité résiduelle</strong> : activité restante d&apos;un déchet à l&apos;instant présent, après décroissance (MBq).</li>
             <li><strong>Activité massique</strong> : activité par unité de masse (Bq/g) — c&apos;est elle qui est comparée au seuil de libération.</li>
+            <li><strong>Masse brute / tare / masse nette</strong> : masse du colis complet / masse du contenant vide / différence des deux — c&apos;est la masse nette qui divise l&apos;activité.</li>
+            <li><strong>Bruit de fond</strong> : débit de dose ambiant du local (µSv/h), relevé à la mesure et au contrôle de sortie ; il se soustrait des mesures pour obtenir le débit net.</li>
             <li><strong>Période (demi-vie)</strong> : durée au bout de laquelle l&apos;activité est divisée par deux.</li>
             <li><strong>Seuil de libération</strong> : activité massique (Bq/g) en dessous de laquelle un déchet peut être libéré de la zone contrôlée.</li>
-            <li><strong>Libérable</strong> : déchet remplissant au moins un critère (activité massique sous le seuil <strong>ou</strong> ≥ 10 périodes).</li>
+            <li><strong>t_lib</strong> : durée théorique de décroissance (h) nécessaire pour atteindre le seuil de libération.</li>
+            <li><strong>Indice de conformité</strong> : durée de stockage réelle ÷ t_lib ; ≥ 1 = déchet gardé assez longtemps.</li>
+            <li><strong>Conformité (calculée)</strong> : preuve documentaire — activité massique sous le seuil <strong>et</strong> indice ≥ 1. Calculée, jamais saisie ; « indéterminée » si une donnée manque.</li>
+            <li><strong>Libérable</strong> : statut opérationnel — déchet remplissant au moins un critère (activité massique sous le seuil <strong>ou</strong> ≥ 10 périodes).</li>
             <li><strong>Non conforme</strong> : déchet sorti par dérogation alors qu&apos;un critère n&apos;était pas satisfait.</li>
             <li><strong>PCR</strong> : Personne Compétente en Radioprotection.</li>
           </ul>

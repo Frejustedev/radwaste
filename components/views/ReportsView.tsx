@@ -5,8 +5,10 @@ import { FileText, CalendarRange, CalendarDays, Boxes } from 'lucide-react';
 import type { WasteItem } from '@/types';
 import {
   residualActivityMBq,
-  massicActivityBqPerG,
   theoreticalReleaseDate,
+  evaluateConformity,
+  netExitDoseRate,
+  type ConformityEvaluation,
 } from '@/lib/physics/decay';
 import { SectionHeader } from '@/components/ui/Primitives';
 import { APP_VERSION, lastUpdatedFr } from '@/lib/version';
@@ -24,12 +26,76 @@ const MONTH_LABELS = [
 
 const DEFAULT_FACILITY = 'Service de Médecine Nucléaire';
 
+/** Marque d'une donnée non relevée. Aucune valeur n'est jamais présumée à sa place. */
+const EMPTY = '—';
+
 /** Formate une date ISO en date locale fr-FR, ou un repli si absente/invalide. */
 function formatDateFr(iso: string | undefined, fallback = '-'): string {
   if (!iso) return fallback;
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return fallback;
   return d.toLocaleDateString('fr-FR');
+}
+
+/** Nombre décimal, ou tiret si la donnée est absente/incalculable. */
+function fmtNumber(value: number | null | undefined, digits = 2): string {
+  if (typeof value !== 'number' || !Number.isFinite(value)) return EMPTY;
+  return value.toFixed(digits);
+}
+
+/** Activité massique et niveaux de libération : notation scientifique (ordres de grandeur très étalés). */
+function fmtSci(value: number | null | undefined): string {
+  if (typeof value !== 'number' || !Number.isFinite(value)) return EMPTY;
+  return value.toExponential(2);
+}
+
+/** Durée en heures, complétée du jour équivalent au-delà de 24 h. */
+function fmtHours(hours: number | null | undefined): string {
+  if (typeof hours !== 'number' || !Number.isFinite(hours)) return EMPTY;
+  const days = hours / 24;
+  return days >= 1 ? `${hours.toFixed(1)} h (${days.toFixed(1)} j)` : `${hours.toFixed(1)} h`;
+}
+
+/** Verdict de conformité CALCULÉ. « Indéterminé » tant qu'une donnée du calcul manque. */
+function conformityVerdict(conforme: boolean | null): string {
+  if (conforme === null) return 'INDÉTERMINÉ';
+  return conforme ? 'CONFORME' : 'NON CONFORME';
+}
+
+/** Conformité DÉCLARÉE par le contrôleur au contrôle de sortie (distincte du verdict calculé). */
+function declaredConformity(w: WasteItem): string {
+  if (typeof w.exitConformity !== 'boolean') return EMPTY;
+  return w.exitConformity ? 'Conforme' : 'Dérogation PCR';
+}
+
+/**
+ * Masse nette avec réserve : sans tare valide relevée, `netMassG` renvoie la masse BRUTE.
+ * On ne présente alors jamais ce chiffre comme une vraie masse nette sans le signaler.
+ */
+function fmtNetMass(item: Pick<WasteItem, 'containerTare'>, netMass: number | null): string {
+  if (typeof netMass !== 'number' || !Number.isFinite(netMass)) return EMPTY;
+  const hasTare = typeof item.containerTare === 'number' && item.containerTare > 0;
+  return hasTare ? fmtNumber(netMass) : `${fmtNumber(netMass)} (= brute, tare non renseignée)`;
+}
+
+/**
+ * Indice de conformité affiché. Quand t_lib = 0 (activité massique déjà sous le seuil dès la mesure),
+ * l'indice est null par construction MAIS le critère de durée est rempli d'office : on affiche
+ * « sans objet », jamais un tiret qui laisserait croire à un critère non documenté à côté d'un CONFORME.
+ */
+function fmtConformityIndex(ev: Pick<ConformityEvaluation, 'tLibHours' | 'conformityIndex'>): string {
+  if (ev.tLibHours === 0) return 'sans objet (t_lib = 0)';
+  return fmtNumber(ev.conformityIndex);
+}
+
+/**
+ * Verdict de conformité pour le REGISTRE. La conformité calculée est une preuve de sortie : tant que
+ * le déchet n'est pas sorti (ni éliminé, ni passé au contrôle de sortie), elle est sans objet — on
+ * affiche « en stockage » plutôt que « INDÉTERMINÉ », pour ne pas noyer le signal des déchets sortis.
+ */
+function registreConformity(w: WasteItem, conforme: boolean | null): string {
+  const isExited = w.status === 'elimine' || Boolean(w.eliminationDate ?? w.exitControlDate);
+  return isExited ? conformityVerdict(conforme) : 'en stockage (n.a.)';
 }
 
 /** Résumé compact du contexte d'activité du jour pour les rapports imprimés. */
@@ -146,8 +212,8 @@ export function ReportsView({ wasteItems }: ReportsViewProps) {
       {/* Cartes de sélection — masquées à l'impression */}
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4 print:hidden">
         <ReportCard onClick={() => handlePrint('REGISTRE')} icon={<FileText className="h-6 w-6" aria-hidden="true" />} title="Registre réglementaire" description="Inventaire complet et historique de tous les déchets enregistrés." />
-        <ReportCard onClick={() => handlePrint('MENSUEL')} icon={<CalendarRange className="h-6 w-6" aria-hidden="true" />} title="Rapport mensuel" description={`Éliminations de ${MONTH_LABELS[month]} ${year} (mode, conformité, visa).`} />
-        <ReportCard onClick={() => handlePrint('ANNUEL')} icon={<CalendarDays className="h-6 w-6" aria-hidden="true" />} title="Rapport annuel" description={`Bilan ${year} : synthèse par radionucléide et détail des éliminations.`} />
+        <ReportCard onClick={() => handlePrint('MENSUEL')} icon={<CalendarRange className="h-6 w-6" aria-hidden="true" />} title="Rapport mensuel" description={`Éliminations de ${MONTH_LABELS[month]} ${year} avec fiches de preuve de conformité.`} />
+        <ReportCard onClick={() => handlePrint('ANNUEL')} icon={<CalendarDays className="h-6 w-6" aria-hidden="true" />} title="Rapport annuel" description={`Bilan ${year} : synthèse par radionucléide et preuves de conformité.`} />
         <ReportCard onClick={() => handlePrint('INVENTAIRE')} icon={<Boxes className="h-6 w-6" aria-hidden="true" />} title="Inventaire du stock" description="Déchets en stockage ou libérables avec activité résiduelle." />
       </div>
 
@@ -228,8 +294,147 @@ function PrintSignature() {
   );
 }
 
+/** Légende rappelant que les cases sans valeur ne sont jamais comblées par un zéro. */
+function PrintLegend() {
+  return (
+    <div className="mt-2 space-y-0.5 text-[10px] text-black">
+      <p>
+        {EMPTY} : donnée non relevée — aucune valeur n&apos;est présumée. Conformité CALCULÉE à partir des mesures
+        enregistrées (activité massique ≤ niveau de libération ET indice de conformité ≥ 1), jamais saisie.
+      </p>
+      <p>
+        « sans objet (t_lib = 0) » : aucune attente n&apos;était requise (activité massique déjà sous le seuil dès la
+        mesure) ; l&apos;indice de conformité est alors sans objet, mais le critère de durée reste rempli.
+      </p>
+      <p>
+        « (= brute, tare non renseignée) » : la tare du contenant n&apos;a pas été relevée ; la masse nette affichée
+        est en réalité la masse brute.
+      </p>
+      <p>
+        « en stockage (n.a.) » : déchet non encore sorti ; la conformité calculée est une preuve de sortie, sans
+        objet tant que le déchet reste en stock.
+      </p>
+    </div>
+  );
+}
+
 const TH_CLASS = 'border border-gray-400 px-2 py-1 text-left text-xs font-semibold text-black';
 const TD_CLASS = 'border border-gray-400 px-2 py-1 text-xs text-black';
+// Tableaux larges (preuve de conformité) : même trame, densité réduite pour tenir en A4 portrait.
+const TH_DENSE = 'border border-gray-400 px-1.5 py-1 text-left text-[10px] font-semibold text-black';
+const TD_DENSE = 'border border-gray-400 px-1.5 py-1 text-[10px] text-black tabular';
+
+/** Une ligne étiquette / valeur d'une fiche de preuve. */
+function FicheRow({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="flex items-baseline justify-between gap-3 border-b border-gray-200 py-0.5">
+      <span className="text-[10px] text-black">{label}</span>
+      <span className="tabular text-[10px] font-semibold text-black">{value}</span>
+    </div>
+  );
+}
+
+/**
+ * Fiche de preuve de conformité d'un déchet : mesures relevées (masses, bruit de fond, débits de dose
+ * d'entrée et de sortie) et indicateurs CALCULÉS (activité massique, t_lib, indice, verdict).
+ */
+function ConformityFiche({ item }: { item: WasteItem }) {
+  const ev = evaluateConformity(item);
+  // « Net » n'a de sens que si le bruit de fond de sortie a été relevé : sinon netExitDoseRate
+  // renvoie la valeur BRUTE (présomption d'un bruit de fond nul). On n'affiche alors pas de net.
+  const hasExitBackground =
+    typeof item.exitBackgroundDoseRate === 'number' && Number.isFinite(item.exitBackgroundDoseRate);
+  const netExit = netExitDoseRate(item);
+
+  return (
+    <div className="mb-4 break-inside-avoid border border-gray-400 p-3">
+      <div className="mb-2 flex items-baseline justify-between gap-3 border-b border-gray-300 pb-1">
+        <p className="text-xs font-bold text-black">
+          Fiche n° {item.registryNumber ?? item.id} — {item.radionuclide} — {item.type}
+        </p>
+        <p className="text-[10px] text-black">
+          Sortie : {formatDateFr(item.eliminationDate ?? item.exitControlDate, EMPTY)}
+        </p>
+      </div>
+
+      <div className="grid grid-cols-2 gap-x-8">
+        <div>
+          <FicheRow label="Masse brute (g)" value={fmtNumber(item.mass)} />
+          <FicheRow label="Tare du contenant (g)" value={fmtNumber(item.containerTare)} />
+          <FicheRow label="Masse nette (g)" value={fmtNetMass(item, ev.netMassG)} />
+          <FicheRow label="Activité initiale (MBq)" value={fmtNumber(item.initialActivity)} />
+          <FicheRow label="Date de mesure" value={formatDateFr(item.measureDate, EMPTY)} />
+          <FicheRow label="Bruit de fond du local à la mesure (µSv/h)" value={fmtNumber(item.backgroundDoseRate)} />
+          <FicheRow label="Débit de dose au contact, entrée (µSv/h)" value={fmtNumber(item.doseRateContact)} />
+          <FicheRow label="Débit de dose à 1 m, entrée (µSv/h)" value={fmtNumber(item.doseRate1m)} />
+          <FicheRow label="Entrée en stockage" value={formatDateFr(item.storageEntryDate, EMPTY)} />
+        </div>
+        <div>
+          <FicheRow label="Bruit de fond du local à la sortie (µSv/h)" value={fmtNumber(item.exitBackgroundDoseRate)} />
+          <FicheRow label="Débit de dose de sortie au contact (µSv/h)" value={fmtNumber(item.exitDoseRate)} />
+          <FicheRow
+            label="Sortie au contact, net du bruit de fond (µSv/h)"
+            value={hasExitBackground ? fmtNumber(netExit) : EMPTY}
+          />
+          <FicheRow label="Débit de dose de sortie à 1 m (µSv/h)" value={fmtNumber(item.exitDoseRate1m)} />
+          <FicheRow label="Activité massique (Bq/g)" value={fmtSci(ev.massicBqPerG)} />
+          <FicheRow label="Niveau de libération applicable (Bq/g)" value={fmtSci(ev.clearanceLevelBqPerG)} />
+          <FicheRow label="Durée théorique de libération (t_lib)" value={fmtHours(ev.tLibHours)} />
+          <FicheRow label="Durée de stockage réelle" value={fmtHours(ev.storageHours)} />
+          <FicheRow label="Indice de conformité (stockage / t_lib)" value={fmtConformityIndex(ev)} />
+        </div>
+      </div>
+
+      <div className="mt-2 border-t border-gray-300 pt-2 text-black">
+        <p className="text-xs">
+          <span className="font-semibold">Conformité calculée : </span>
+          <span className="font-bold">{conformityVerdict(ev.conforme)}</span>
+        </p>
+        {ev.conforme === null && ev.missing.length > 0 && (
+          <p className="mt-0.5 text-[10px]">Données manquantes : {ev.missing.join(' · ')}</p>
+        )}
+        <p className="mt-0.5 text-[10px]">
+          Conformité déclarée par le contrôleur : {declaredConformity(item)} — Contrôleur : {item.exitController ?? EMPTY}
+          {item.exitSignedBy ? ` (${item.exitSignedBy})` : ''}
+        </p>
+      </div>
+    </div>
+  );
+}
+
+/** Répartition des verdicts calculés sur un lot de déchets. */
+function ConformitySummary({ items }: { items: WasteItem[] }) {
+  let conformes = 0;
+  let nonConformes = 0;
+  let indetermines = 0;
+  for (const w of items) {
+    const { conforme } = evaluateConformity(w);
+    if (conforme === null) indetermines += 1;
+    else if (conforme) conformes += 1;
+    else nonConformes += 1;
+  }
+  return (
+    <p className="mb-4 text-xs text-black">
+      Conformité calculée : <span className="font-semibold">{conformes}</span> conforme(s) ·{' '}
+      <span className="font-semibold">{nonConformes}</span> non conforme(s) ·{' '}
+      <span className="font-semibold">{indetermines}</span> indéterminé(s).
+    </p>
+  );
+}
+
+/** Section « fiches » : une fiche de preuve par déchet du lot. */
+function ConformityFiches({ items }: { items: WasteItem[] }) {
+  return (
+    <>
+      <h2 className="mt-8 mb-2 text-sm font-bold text-black">Fiches de preuve de conformité</h2>
+      <p className="mb-3 text-[10px] text-black">
+        Mesures relevées et indicateurs calculés, déchet par déchet. Un {EMPTY} signale une donnée non relevée :
+        aucune valeur n&apos;est présumée à sa place.
+      </p>
+      {items.map((w) => <ConformityFiche key={w.id} item={w} />)}
+    </>
+  );
+}
 
 function PrintRegistre({ wasteItems, facility }: { wasteItems: WasteItem[]; facility: string }) {
   return (
@@ -238,32 +443,50 @@ function PrintRegistre({ wasteItems, facility }: { wasteItems: WasteItem[]; faci
       {wasteItems.length === 0 ? (
         <p className="text-xs text-black">Aucun déchet enregistré.</p>
       ) : (
-        <table className="w-full border-collapse border border-gray-400">
-          <thead>
-            <tr>
-              <th className={TH_CLASS}>Numéro</th>
-              <th className={TH_CLASS}>Entrée</th>
-              <th className={TH_CLASS}>Isotope</th>
-              <th className={TH_CLASS}>Act. init (MBq)</th>
-              <th className={TH_CLASS}>Statut</th>
-              <th className={TH_CLASS}>Sortie</th>
-              <th className={TH_CLASS}>Activité du jour</th>
-            </tr>
-          </thead>
-          <tbody>
-            {wasteItems.map((w) => (
-              <tr key={w.id}>
-                <td className={TD_CLASS}>{w.registryNumber ?? w.id}</td>
-                <td className={TD_CLASS}>{formatDateFr(w.storageEntryDate)}</td>
-                <td className={TD_CLASS}>{w.radionuclide}</td>
-                <td className={TD_CLASS}>{w.initialActivity}</td>
-                <td className={TD_CLASS}>{w.status}</td>
-                <td className={TD_CLASS}>{formatDateFr(w.eliminationDate)}</td>
-                <td className={TD_CLASS}>{formatDailyContext(w)}</td>
+        <>
+          <table className="w-full border-collapse border border-gray-400">
+            <thead>
+              <tr>
+                <th className={TH_DENSE}>Numéro</th>
+                <th className={TH_DENSE}>Entrée</th>
+                <th className={TH_DENSE}>Isotope</th>
+                <th className={TH_DENSE}>Act. init (MBq)</th>
+                <th className={TH_DENSE}>Masse brute (g)</th>
+                <th className={TH_DENSE}>Tare (g)</th>
+                <th className={TH_DENSE}>Masse nette (g)</th>
+                <th className={TH_DENSE}>Act. massique (Bq/g)</th>
+                <th className={TH_DENSE}>Niveau lib. (Bq/g)</th>
+                <th className={TH_DENSE}>Statut</th>
+                <th className={TH_DENSE}>Sortie</th>
+                <th className={TH_DENSE}>Conformité calculée</th>
+                <th className={TH_DENSE}>Activité du jour</th>
               </tr>
-            ))}
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              {wasteItems.map((w) => {
+                const ev = evaluateConformity(w);
+                return (
+                  <tr key={w.id}>
+                    <td className={TD_DENSE}>{w.registryNumber ?? w.id}</td>
+                    <td className={TD_DENSE}>{formatDateFr(w.storageEntryDate, EMPTY)}</td>
+                    <td className={TD_DENSE}>{w.radionuclide}</td>
+                    <td className={TD_DENSE}>{fmtNumber(w.initialActivity)}</td>
+                    <td className={TD_DENSE}>{fmtNumber(w.mass)}</td>
+                    <td className={TD_DENSE}>{fmtNumber(w.containerTare)}</td>
+                    <td className={TD_DENSE}>{fmtNetMass(w, ev.netMassG)}</td>
+                    <td className={TD_DENSE}>{fmtSci(ev.massicBqPerG)}</td>
+                    <td className={TD_DENSE}>{fmtSci(ev.clearanceLevelBqPerG)}</td>
+                    <td className={TD_DENSE}>{w.status}</td>
+                    <td className={TD_DENSE}>{formatDateFr(w.eliminationDate, EMPTY)}</td>
+                    <td className={`${TD_DENSE} font-bold`}>{registreConformity(w, ev.conforme)}</td>
+                    <td className={TD_DENSE}>{formatDailyContext(w)}</td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+          <PrintLegend />
+        </>
       )}
       <PrintSignature />
     </div>
@@ -281,35 +504,44 @@ function PrintInventaire({ wasteItems, facility }: { wasteItems: WasteItem[]; fa
       {stock.length === 0 ? (
         <p className="text-xs text-black">Aucun déchet en stock.</p>
       ) : (
-        <table className="w-full border-collapse border border-gray-400">
-          <thead>
-            <tr>
-              <th className={TH_CLASS}>ID</th>
-              <th className={TH_CLASS}>Isotope</th>
-              <th className={TH_CLASS}>Date entrée</th>
-              <th className={TH_CLASS}>Activité résiduelle (MBq)</th>
-              <th className={TH_CLASS}>Activité massique (Bq/g)</th>
-              <th className={TH_CLASS}>Libération prévue</th>
-            </tr>
-          </thead>
-          <tbody>
-            {stock.map((w) => {
-              const residual = residualActivityMBq(w);
-              const massic = massicActivityBqPerG(w);
-              const release = theoreticalReleaseDate(w);
-              return (
-                <tr key={w.id}>
-                  <td className={TD_CLASS}>{w.registryNumber ?? w.id}</td>
-                  <td className={TD_CLASS}>{w.radionuclide}</td>
-                  <td className={TD_CLASS}>{formatDateFr(w.storageEntryDate, '—')}</td>
-                  <td className={TD_CLASS}>{residual !== null ? residual.toFixed(4) : '—'}</td>
-                  <td className={TD_CLASS}>{massic !== null ? massic.toExponential(2) : '—'}</td>
-                  <td className={TD_CLASS}>{release !== null ? release.toLocaleDateString('fr-FR') : '—'}</td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
+        <>
+          <table className="w-full border-collapse border border-gray-400">
+            <thead>
+              <tr>
+                <th className={TH_DENSE}>ID</th>
+                <th className={TH_DENSE}>Isotope</th>
+                <th className={TH_DENSE}>Date entrée</th>
+                <th className={TH_DENSE}>Masse nette (g)</th>
+                <th className={TH_DENSE}>Activité résiduelle (MBq)</th>
+                <th className={TH_DENSE}>Activité massique (Bq/g)</th>
+                <th className={TH_DENSE}>Niveau lib. (Bq/g)</th>
+                <th className={TH_DENSE}>t_lib</th>
+                <th className={TH_DENSE}>Libération prévue</th>
+              </tr>
+            </thead>
+            <tbody>
+              {stock.map((w) => {
+                const ev = evaluateConformity(w);
+                const residual = residualActivityMBq(w);
+                const release = theoreticalReleaseDate(w);
+                return (
+                  <tr key={w.id}>
+                    <td className={TD_DENSE}>{w.registryNumber ?? w.id}</td>
+                    <td className={TD_DENSE}>{w.radionuclide}</td>
+                    <td className={TD_DENSE}>{formatDateFr(w.storageEntryDate, EMPTY)}</td>
+                    <td className={TD_DENSE}>{fmtNetMass(w, ev.netMassG)}</td>
+                    <td className={TD_DENSE}>{fmtNumber(residual, 4)}</td>
+                    <td className={TD_DENSE}>{fmtSci(ev.massicBqPerG)}</td>
+                    <td className={TD_DENSE}>{fmtSci(ev.clearanceLevelBqPerG)}</td>
+                    <td className={TD_DENSE}>{fmtHours(ev.tLibHours)}</td>
+                    <td className={TD_DENSE}>{release !== null ? release.toLocaleDateString('fr-FR') : EMPTY}</td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+          <PrintLegend />
+        </>
       )}
       <PrintSignature />
     </div>
@@ -321,25 +553,42 @@ function EliminationTable({ items }: { items: WasteItem[] }) {
     <table className="w-full border-collapse border border-gray-400">
       <thead>
         <tr>
-          <th className={TH_CLASS}>ID</th>
-          <th className={TH_CLASS}>Date sortie</th>
-          <th className={TH_CLASS}>Isotope</th>
-          <th className={TH_CLASS}>Mode d&apos;élimination</th>
-          <th className={TH_CLASS}>Conformité</th>
-          <th className={TH_CLASS}>Visa / Signature</th>
+          <th className={TH_DENSE}>ID</th>
+          <th className={TH_DENSE}>Date sortie</th>
+          <th className={TH_DENSE}>Isotope</th>
+          <th className={TH_DENSE}>Mode d&apos;élimination</th>
+          <th className={TH_DENSE}>Masse nette (g)</th>
+          <th className={TH_DENSE}>Act. massique (Bq/g)</th>
+          <th className={TH_DENSE}>Niveau lib. (Bq/g)</th>
+          <th className={TH_DENSE}>Sortie contact (µSv/h)</th>
+          <th className={TH_DENSE}>Sortie 1 m (µSv/h)</th>
+          <th className={TH_DENSE}>Indice conf.</th>
+          <th className={TH_DENSE}>Conformité calculée</th>
+          <th className={TH_DENSE}>Conformité déclarée</th>
+          <th className={TH_DENSE}>Visa / Signature</th>
         </tr>
       </thead>
       <tbody>
-        {items.map((w) => (
-          <tr key={w.id}>
-            <td className={TD_CLASS}>{w.registryNumber ?? w.id}</td>
-            <td className={TD_CLASS}>{formatDateFr(w.eliminationDate, '—')}</td>
-            <td className={TD_CLASS}>{w.radionuclide}</td>
-            <td className={TD_CLASS}>{w.eliminationMode ?? '—'}</td>
-            <td className={TD_CLASS}>{w.exitConformity ? 'Conforme' : 'Dérogation'}</td>
-            <td className={TD_CLASS}>{w.exitController ?? '—'}{w.exitSignedBy ? ` (${w.exitSignedBy})` : ''}</td>
-          </tr>
-        ))}
+        {items.map((w) => {
+          const ev = evaluateConformity(w);
+          return (
+            <tr key={w.id}>
+              <td className={TD_DENSE}>{w.registryNumber ?? w.id}</td>
+              <td className={TD_DENSE}>{formatDateFr(w.eliminationDate, EMPTY)}</td>
+              <td className={TD_DENSE}>{w.radionuclide}</td>
+              <td className={TD_DENSE}>{w.eliminationMode ?? EMPTY}</td>
+              <td className={TD_DENSE}>{fmtNetMass(w, ev.netMassG)}</td>
+              <td className={TD_DENSE}>{fmtSci(ev.massicBqPerG)}</td>
+              <td className={TD_DENSE}>{fmtSci(ev.clearanceLevelBqPerG)}</td>
+              <td className={TD_DENSE}>{fmtNumber(w.exitDoseRate)}</td>
+              <td className={TD_DENSE}>{fmtNumber(w.exitDoseRate1m)}</td>
+              <td className={TD_DENSE}>{fmtConformityIndex(ev)}</td>
+              <td className={`${TD_DENSE} font-bold`}>{conformityVerdict(ev.conforme)}</td>
+              <td className={TD_DENSE}>{declaredConformity(w)}</td>
+              <td className={TD_DENSE}>{w.exitController ?? EMPTY}{w.exitSignedBy ? ` (${w.exitSignedBy})` : ''}</td>
+            </tr>
+          );
+        })}
       </tbody>
     </table>
   );
@@ -349,10 +598,19 @@ function PrintMensuel({ items, periodLabel, facility }: { items: WasteItem[]; pe
   return (
     <div className="p-8">
       <PrintHeader title="Rapport Mensuel d'Élimination" subtitle={`Période : ${periodLabel}`} facility={facility} />
-      <p className="mb-4 text-xs text-black">
+      <p className="mb-1 text-xs text-black">
         Total éliminé sur la période : <span className="font-semibold">{items.length}</span> déchet(s).
       </p>
-      {items.length === 0 ? <p className="text-xs text-black">Aucune élimination sur cette période.</p> : <EliminationTable items={items} />}
+      {items.length === 0 ? (
+        <p className="text-xs text-black">Aucune élimination sur cette période.</p>
+      ) : (
+        <>
+          <ConformitySummary items={items} />
+          <EliminationTable items={items} />
+          <PrintLegend />
+          <ConformityFiches items={items} />
+        </>
+      )}
       <PrintSignature />
     </div>
   );
@@ -372,9 +630,10 @@ function PrintAnnuel({ items, year, facility }: { items: WasteItem[]; year: numb
   return (
     <div className="p-8">
       <PrintHeader title="Rapport Annuel des Déchets Radioactifs" subtitle={`Année : ${year}`} facility={facility} />
-      <p className="mb-4 text-xs text-black">
+      <p className="mb-1 text-xs text-black">
         Total éliminé sur l&apos;année : <span className="font-semibold">{items.length}</span> déchet(s).
       </p>
+      {items.length > 0 && <ConformitySummary items={items} />}
 
       <h2 className="mb-2 text-sm font-bold text-black">Synthèse par radionucléide</h2>
       {rows.length === 0 ? (
@@ -404,6 +663,8 @@ function PrintAnnuel({ items, year, facility }: { items: WasteItem[]; year: numb
         <>
           <h2 className="mb-2 text-sm font-bold text-black">Détail des éliminations</h2>
           <EliminationTable items={items} />
+          <PrintLegend />
+          <ConformityFiches items={items} />
         </>
       )}
       <PrintSignature />

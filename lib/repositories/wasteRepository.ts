@@ -1,5 +1,5 @@
 import {
-  collection, doc, setDoc, updateDoc, onSnapshot, query, where, getDocs, writeBatch,
+  collection, doc, setDoc, updateDoc, onSnapshot, query, where, getDocs, writeBatch, deleteField,
   type Unsubscribe,
 } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
@@ -31,8 +31,19 @@ export async function createWasteItem(input: Omit<WasteItem, 'id' | 'registryNum
   return ref.id;
 }
 
-export async function updateWasteItem(id: string, patch: Partial<WasteItem>): Promise<void> {
-  await updateDoc(doc(db, COL, id), stripUndefined(patch));
+/**
+ * Met à jour un déchet. Les clés listées dans `clearedKeys` sont EXPLICITEMENT supprimées du document
+ * (via deleteField), ce qui permet, en édition, d'effacer une valeur saisie par erreur — par exemple une
+ * tare fautive, qui fausserait sinon l'activité massique. Sans cette liste, `stripUndefined` se contente
+ * d'ignorer les clés absentes du patch, laissant l'ancienne valeur en base.
+ */
+export async function updateWasteItem(
+  id: string,
+  patch: Partial<WasteItem>,
+  clearedKeys: (keyof WasteItem)[] = [],
+): Promise<void> {
+  const clears = Object.fromEntries(clearedKeys.map((k) => [k, deleteField()]));
+  await updateDoc(doc(db, COL, id), { ...stripUndefined(patch), ...clears });
 }
 
 /** Supprime un déchet et, atomiquement, les incidents qui lui sont rattachés. */

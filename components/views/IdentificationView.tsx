@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useMemo, useState } from 'react';
-import { Plus, Trash2, Edit2, X } from 'lucide-react';
+import { Plus, Trash2, Edit2, X, Eye } from 'lucide-react';
 import type { WasteItem, User, AppSettings, Radionuclide, WasteType, WasteStatus } from '@/types';
 import { validateWasteForm } from '@/lib/validation/schemas';
 import {
@@ -9,6 +9,7 @@ import {
   referenceHalfLife,
   referenceClearanceLevel,
 } from '@/lib/physics/clearanceLevels';
+import { evaluateConformity, netExitDoseRate, netMassG } from '@/lib/physics/decay';
 import {
   createWasteItem,
   updateWasteItem,
@@ -17,6 +18,7 @@ import {
 import { writeLog } from '@/lib/repositories/logRepository';
 import { useToast } from '@/components/ui/Toast';
 import { FormInput, FormSelect } from '@/components/ui/Form';
+import { Modal } from '@/components/ui/Modal';
 import {
   IconButton,
   StatusBadge,
@@ -50,6 +52,20 @@ function parseNum(value: string): number | undefined {
   return Number.isFinite(n) ? n : undefined;
 }
 
+/**
+ * Nombre formaté à la française. Un vrai zéro s'affiche « 0 » ; une valeur non nulle mais trop
+ * petite pour être visible au nombre de décimales demandé (ex. 0,004 avec digits=2) est rendue en
+ * notation scientifique (« 4,0e-3 ») plutôt qu'un « 0 » trompeur sur une fiche documentaire.
+ */
+function fmtNum(n: number, digits = 2): string {
+  if (!Number.isFinite(n)) return '—';
+  if (n === 0) return '0';
+  if (Math.abs(n) < 0.5 * Math.pow(10, -digits)) {
+    return n.toExponential(1).replace('.', ',');
+  }
+  return n.toLocaleString('fr-FR', { maximumFractionDigits: digits });
+}
+
 interface FormState {
   originService: string;
   responsibleOperator: string;
@@ -57,11 +73,13 @@ interface FormState {
   radionuclide: string;
   initialActivity: string;
   mass: string;
+  containerTare: string;
   measureDate: string;
   halfLife: string;
   clearanceLevelBqPerG: string;
   releaseDoseThreshold: string;
   storageEntryDate: string;
+  backgroundDoseRate: string;
   doseRateContact: string;
   doseRate1m: string;
   dailyElution: string;
@@ -70,7 +88,9 @@ interface FormState {
   historicalEliminated: boolean;
   histElimDate: string;
   histElimMode: string;
+  histExitBackground: string;
   histExitDose: string;
+  histExitDose1m: string;
   histController: string;
   histConformity: string;
 }
@@ -83,11 +103,13 @@ function emptyForm(profile: User): FormState {
     radionuclide: '',
     initialActivity: '',
     mass: '',
+    containerTare: '',
     measureDate: nowLocal16(),
     halfLife: '',
     clearanceLevelBqPerG: '',
     releaseDoseThreshold: '0.5',
     storageEntryDate: nowLocal16(),
+    backgroundDoseRate: '',
     doseRateContact: '',
     doseRate1m: '',
     dailyElution: '',
@@ -96,7 +118,9 @@ function emptyForm(profile: User): FormState {
     historicalEliminated: false,
     histElimDate: nowLocal16(),
     histElimMode: '',
+    histExitBackground: '',
     histExitDose: '',
+    histExitDose1m: '',
     histController: profile.name,
     histConformity: 'Oui',
   };
@@ -121,6 +145,7 @@ export function IdentificationView({ wasteItems, users, profile, settings }: Ide
   // Statut du déchet en cours d'édition (permet de compléter aussi les déchets libérés/éliminés).
   const [editStatus, setEditStatus] = useState<WasteStatus | null>(null);
   const [statusFilter, setStatusFilter] = useState<'tous' | 'stockage' | 'liberable' | 'elimine'>('tous');
+  const [detailId, setDetailId] = useState<string | null>(null);
 
   const operatorOptions = useMemo<string[]>(() => users.map((u) => u.name), [users]);
   const radionuclideOptions = useMemo<string[]>(() => [...RADIONUCLIDE_OPTIONS], []);
@@ -144,11 +169,29 @@ export function IdentificationView({ wasteItems, users, profile, settings }: Ide
     [wasteItems, statusFilter],
   );
 
+  const detailItem = useMemo<WasteItem | null>(
+    () => wasteItems.find((w) => w.id === detailId) ?? null,
+    [wasteItems, detailId],
+  );
+
   const clearancePlaceholder = useMemo<string>(() => {
     if (!form.radionuclide || form.radionuclide === 'autres') return 'ex. 100';
     const ref = referenceClearanceLevel(form.radionuclide as Radionuclide);
     return ref === null ? 'ex. 100' : `Référence : ${ref}`;
   }, [form.radionuclide]);
+
+  // Masse nette recalculée à la volée, tant que la tare reste cohérente avec la masse brute.
+  const netMassHint = useMemo<string | null>(() => {
+    const gross = parseNum(form.mass);
+    const tare = parseNum(form.containerTare);
+    if (gross === undefined || tare === undefined) return null;
+    const net = netMassG({ mass: gross, containerTare: tare });
+    if (net === null) return null;
+    // netMassG renvoie la masse BRUTE quand la tare est absente/<=0 : ne pas l'étiqueter « nette ».
+    return tare > 0
+      ? `Masse nette (brute − tare) : ${fmtNum(net, 2)} g`
+      : `Masse nette : ${fmtNum(net, 2)} g (= masse brute, tare non renseignée)`;
+  }, [form.mass, form.containerTare]);
 
   function resetForm() {
     setForm(emptyForm(profile));
@@ -189,10 +232,12 @@ export function IdentificationView({ wasteItems, users, profile, settings }: Ide
       radionuclide: item.radionuclide,
       initialActivity: numToInput(item.initialActivity),
       mass: numToInput(item.mass),
+      containerTare: numToInput(item.containerTare),
       measureDate: item.measureDate ? toLocal16(item.measureDate) : '',
       halfLife: numToInput(item.halfLife),
       clearanceLevelBqPerG: numToInput(item.clearanceLevelBqPerG),
       releaseDoseThreshold: item.releaseDoseThreshold != null ? String(item.releaseDoseThreshold) : '0.5',
+      backgroundDoseRate: numToInput(item.backgroundDoseRate),
       doseRateContact: numToInput(item.doseRateContact),
       doseRate1m: numToInput(item.doseRate1m),
       dailyElution: numToInput(item.dailyElution),
@@ -203,7 +248,9 @@ export function IdentificationView({ wasteItems, users, profile, settings }: Ide
       // Données de sortie existantes (pour compléter/corriger un déchet déjà libéré ou éliminé).
       histElimDate: item.eliminationDate ? toLocal16(item.eliminationDate) : nowLocal16(),
       histElimMode: item.eliminationMode ?? '',
-      histExitDose: item.exitDoseRate != null ? String(item.exitDoseRate) : '',
+      histExitBackground: numToInput(item.exitBackgroundDoseRate),
+      histExitDose: numToInput(item.exitDoseRate),
+      histExitDose1m: numToInput(item.exitDoseRate1m),
       histController: item.exitController ?? profile.name,
       histConformity: item.exitConformity === false ? 'Non' : 'Oui',
     });
@@ -223,8 +270,10 @@ export function IdentificationView({ wasteItems, users, profile, settings }: Ide
       radionuclide: form.radionuclide,
       initialActivity: form.initialActivity,
       mass: form.mass,
+      containerTare: form.containerTare,
       halfLife: form.halfLife,
       measureDate: form.measureDate,
+      backgroundDoseRate: form.backgroundDoseRate,
       doseRateContact: form.doseRateContact,
       doseRate1m: form.doseRate1m,
       clearanceLevelBqPerG: form.clearanceLevelBqPerG,
@@ -252,20 +301,23 @@ export function IdentificationView({ wasteItems, users, profile, settings }: Ide
       if (editId) {
         const isOut = editStatus === 'liberable' || editStatus === 'elimine';
         const elimIsoEdit = parseLocalIso(form.histElimDate);
-        await updateWasteItem(editId, {
+        const storageEntryIso = parseLocalIso(form.storageEntryDate);
+        const patch: Partial<WasteItem> = {
           type: form.type as WasteType,
           radionuclide: form.radionuclide as Radionuclide,
           originService: v.originService,
           responsibleOperator,
           initialActivity: v.initialActivity,
           mass: v.mass,
+          containerTare: v.containerTare,
           measureDate: v.measureDate,
+          backgroundDoseRate: v.backgroundDoseRate,
           doseRateContact: v.doseRateContact,
           doseRate1m: v.doseRate1m,
           halfLife: v.halfLife,
           clearanceLevelBqPerG: v.clearanceLevelBqPerG,
           releaseDoseThreshold: v.releaseDoseThreshold,
-          storageEntryDate: parseLocalIso(form.storageEntryDate),
+          storageEntryDate: storageEntryIso,
           dailyElution: v.dailyElution,
           dailyPatientCount: v.dailyPatientCount,
           dailyExamTypes,
@@ -274,20 +326,59 @@ export function IdentificationView({ wasteItems, users, profile, settings }: Ide
             eliminationDate: elimIsoEdit,
             exitControlDate: elimIsoEdit,
             eliminationMode: form.histElimMode || undefined,
+            exitBackgroundDoseRate: parseNum(form.histExitBackground),
             exitDoseRate: parseNum(form.histExitDose),
+            exitDoseRate1m: parseNum(form.histExitDose1m),
             exitController: form.histController || undefined,
             eliminationResponsible: form.histController || undefined,
             exitConformity: form.histConformity !== 'Non',
           } : {}),
-        });
+        };
+        // Champs facultatifs VIDÉS par l'utilisateur alors qu'ils avaient une valeur : à effacer
+        // explicitement (patch=undefined ne supprime pas ; une tare fautive laissée en base
+        // fausserait l'activité massique). La conformité déclarée (select) n'est jamais vidée.
+        const original = wasteItems.find((w) => w.id === editId);
+        const clearedKeys: (keyof WasteItem)[] = [];
+        if (original) {
+          const clearIfEmptied = (key: keyof WasteItem, newVal: unknown) => {
+            if (original[key] !== undefined && (newVal === undefined || newVal === '')) {
+              clearedKeys.push(key);
+            }
+          };
+          clearIfEmptied('initialActivity', v.initialActivity);
+          clearIfEmptied('mass', v.mass);
+          clearIfEmptied('containerTare', v.containerTare);
+          clearIfEmptied('halfLife', v.halfLife);
+          clearIfEmptied('clearanceLevelBqPerG', v.clearanceLevelBqPerG);
+          clearIfEmptied('releaseDoseThreshold', v.releaseDoseThreshold);
+          clearIfEmptied('backgroundDoseRate', v.backgroundDoseRate);
+          clearIfEmptied('doseRateContact', v.doseRateContact);
+          clearIfEmptied('doseRate1m', v.doseRate1m);
+          clearIfEmptied('dailyElution', v.dailyElution);
+          clearIfEmptied('dailyPatientCount', v.dailyPatientCount);
+          clearIfEmptied('measureDate', v.measureDate);
+          clearIfEmptied('originService', v.originService);
+          clearIfEmptied('responsibleOperator', responsibleOperator);
+          clearIfEmptied('dailyExamTypes', dailyExamTypes);
+          clearIfEmptied('storageEntryDate', storageEntryIso);
+          if (isOut) {
+            clearIfEmptied('eliminationDate', elimIsoEdit);
+            clearIfEmptied('exitControlDate', elimIsoEdit);
+            clearIfEmptied('eliminationMode', form.histElimMode || undefined);
+            clearIfEmptied('eliminationResponsible', form.histController || undefined);
+            clearIfEmptied('exitController', form.histController || undefined);
+            clearIfEmptied('exitBackgroundDoseRate', parseNum(form.histExitBackground));
+            clearIfEmptied('exitDoseRate', parseNum(form.histExitDose));
+            clearIfEmptied('exitDoseRate1m', parseNum(form.histExitDose1m));
+          }
+        }
+        await updateWasteItem(editId, patch, clearedKeys);
         success('Déchet mis à jour.');
         await writeLog(profile.hospitalId, `Modification du déchet ${editId} (${form.radionuclide})${isOut ? ' — données de sortie incluses' : ''}`);
       } else {
         const NOW_ISO = new Date().toISOString();
         const hist = form.historicalEliminated;
         const elimIso = hist ? (form.histElimDate ? new Date(form.histElimDate).toISOString() : NOW_ISO) : undefined;
-        const histExitDoseNum = hist && form.histExitDose.trim() !== '' && Number.isFinite(Number(form.histExitDose))
-          ? Number(form.histExitDose) : undefined;
         const input: Omit<WasteItem, 'id' | 'registryNumber'> = {
           createdAt: NOW_ISO,
           hospitalId: profile.hospitalId,
@@ -298,7 +389,9 @@ export function IdentificationView({ wasteItems, users, profile, settings }: Ide
           responsibleOperator,
           initialActivity: v.initialActivity,
           mass: v.mass,
+          containerTare: v.containerTare,
           measureDate: v.measureDate,
+          backgroundDoseRate: v.backgroundDoseRate,
           doseRateContact: v.doseRateContact,
           doseRate1m: v.doseRate1m,
           halfLife: v.halfLife,
@@ -314,7 +407,9 @@ export function IdentificationView({ wasteItems, users, profile, settings }: Ide
             eliminationDate: elimIso,
             exitControlDate: elimIso,
             eliminationMode: form.histElimMode || undefined,
-            exitDoseRate: histExitDoseNum,
+            exitBackgroundDoseRate: parseNum(form.histExitBackground),
+            exitDoseRate: parseNum(form.histExitDose),
+            exitDoseRate1m: parseNum(form.histExitDose1m),
             eliminationResponsible: form.histController || profile.name,
             exitController: form.histController || profile.name,
             exitConformity: form.histConformity !== 'Non',
@@ -443,6 +538,12 @@ export function IdentificationView({ wasteItems, users, profile, settings }: Ide
       render: (item) => (
         <div className="flex items-center justify-end gap-2">
           <IconButton
+            label={`Voir la fiche du déchet ${item.registryNumber ?? item.id}`}
+            onClick={() => setDetailId(item.id)}
+          >
+            <Eye className="w-4 h-4" aria-hidden="true" />
+          </IconButton>
+          <IconButton
             variant="info"
             label={`Modifier le déchet ${item.registryNumber ?? item.id}`}
             onClick={() => startEdit(item)}
@@ -556,7 +657,7 @@ export function IdentificationView({ wasteItems, users, profile, settings }: Ide
               error={fieldErrors.initialActivity}
             />
             <FormInput
-              label="Masse du colis (g) — optionnel"
+              label="Masse brute (g) — optionnel"
               name="mass"
               value={form.mass}
               onChange={handleInputChange}
@@ -565,6 +666,19 @@ export function IdentificationView({ wasteItems, users, profile, settings }: Ide
               min="0"
               error={fieldErrors.mass}
             />
+            <div>
+              <FormInput
+                label="Tare du contenant (g) — optionnel"
+                name="containerTare"
+                value={form.containerTare}
+                onChange={handleInputChange}
+                type="number"
+                step="0.1"
+                min="0"
+                error={fieldErrors.containerTare}
+              />
+              {netMassHint && <p className="text-xs text-accent mt-1">{netMassHint}</p>}
+            </div>
             <FormInput
               label="Date et heure de mesure (optionnel)"
               name="measureDate"
@@ -610,6 +724,16 @@ export function IdentificationView({ wasteItems, users, profile, settings }: Ide
               step="0.01"
               min="0"
               error={fieldErrors.releaseDoseThreshold}
+            />
+            <FormInput
+              label="Bruit de fond du local (µSv/h) — optionnel"
+              name="backgroundDoseRate"
+              value={form.backgroundDoseRate}
+              onChange={handleInputChange}
+              type="number"
+              step="0.01"
+              min="0"
+              error={fieldErrors.backgroundDoseRate}
             />
             <FormInput
               label="Débit de dose au contact (µSv/h) — optionnel"
@@ -720,12 +844,30 @@ export function IdentificationView({ wasteItems, users, profile, settings }: Ide
                     options={settings.eliminationModes}
                   />
                   <FormInput
-                    label="Débit de dose mesuré à la sortie (µSv/h)"
+                    label="Bruit de fond du local à la sortie (µSv/h)"
+                    name="histExitBackground"
+                    type="number"
+                    step="0.01"
+                    min="0"
+                    value={form.histExitBackground}
+                    onChange={handleInputChange}
+                  />
+                  <FormInput
+                    label="Débit de dose de sortie AU CONTACT (µSv/h)"
                     name="histExitDose"
                     type="number"
                     step="0.01"
                     min="0"
                     value={form.histExitDose}
+                    onChange={handleInputChange}
+                  />
+                  <FormInput
+                    label="Débit de dose de sortie à 1 m (µSv/h)"
+                    name="histExitDose1m"
+                    type="number"
+                    step="0.01"
+                    min="0"
+                    value={form.histExitDose1m}
                     onChange={handleInputChange}
                   />
                   <FormSelect
@@ -770,12 +912,30 @@ export function IdentificationView({ wasteItems, users, profile, settings }: Ide
                   options={settings.eliminationModes}
                 />
                 <FormInput
-                  label="Débit de dose mesuré à la sortie (µSv/h)"
+                  label="Bruit de fond du local à la sortie (µSv/h)"
+                  name="histExitBackground"
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  value={form.histExitBackground}
+                  onChange={handleInputChange}
+                />
+                <FormInput
+                  label="Débit de dose de sortie AU CONTACT (µSv/h)"
                   name="histExitDose"
                   type="number"
                   step="0.01"
                   min="0"
                   value={form.histExitDose}
+                  onChange={handleInputChange}
+                />
+                <FormInput
+                  label="Débit de dose de sortie à 1 m (µSv/h)"
+                  name="histExitDose1m"
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  value={form.histExitDose1m}
                   onChange={handleInputChange}
                 />
                 <FormSelect
@@ -854,6 +1014,144 @@ export function IdentificationView({ wasteItems, users, profile, settings }: Ide
           emptyMessage="Aucun déchet à afficher."
           exportFileName="dechets"
         />
+      </div>
+
+      <Modal
+        open={detailItem !== null}
+        onClose={() => setDetailId(null)}
+        title="Fiche détaillée du déchet"
+        subtitle={detailItem?.registryNumber ?? detailItem?.id}
+      >
+        {detailItem && <WasteDetail item={detailItem} />}
+      </Modal>
+    </div>
+  );
+}
+
+/** Ligne « libellé / valeur » d'une fiche détaillée. */
+function DetailRow({ label, value }: { label: string; value: React.ReactNode }) {
+  return (
+    <div className="flex justify-between gap-4 py-1 border-b border-subtle last:border-0">
+      <span className="text-xs text-muted">{label}</span>
+      <span className="text-sm text-primary text-right font-medium">{value}</span>
+    </div>
+  );
+}
+
+/** Fiche détaillée : caractérisation du déchet et indicateurs de conformité calculés. */
+function WasteDetail({ item }: { item: WasteItem }) {
+  const ev = evaluateConformity(item);
+  const netExit = netExitDoseRate(item);
+  // Une tare réelle existe-t-elle ? Sinon la « masse nette » renvoyée est en fait la masse brute.
+  const hasTare = item.containerTare !== undefined && item.containerTare > 0;
+
+  // Helpers d'affichage : valeur absente => tiret « — », jamais un zéro fabriqué.
+  const num = (n: number | undefined, unit: string): string =>
+    n !== undefined ? `${fmtNum(n, 2)} ${unit}` : '—';
+  const dateFr = (iso: string | undefined): string =>
+    iso ? new Date(iso).toLocaleString('fr-FR') : '—';
+
+  const verdict = ev.conforme === true
+    ? { label: 'CONFORME', cls: 'bg-green-500/20 text-green-600' }
+    : ev.conforme === false
+      ? { label: 'NON CONFORME', cls: 'bg-red-500/20 text-red-500' }
+      : { label: 'INDÉTERMINÉ', cls: 'bg-slate-500/20 text-slate-500' };
+
+  // Conformité DÉCLARÉE par le contrôleur, montrée à côté du verdict CALCULÉ pour rendre l'écart visible.
+  const declared = item.exitConformity === undefined
+    ? null
+    : item.exitConformity
+      ? { label: 'CONFORME', cls: 'bg-green-500/20 text-green-600' }
+      : { label: 'NON CONFORME', cls: 'bg-red-500/20 text-red-500' };
+
+  const hasExitData = item.eliminationDate !== undefined || item.exitControlDate !== undefined
+    || item.eliminationMode !== undefined || item.exitBackgroundDoseRate !== undefined
+    || item.exitDoseRate !== undefined || item.exitDoseRate1m !== undefined
+    || item.exitController !== undefined || item.exitConformity !== undefined;
+
+  return (
+    <div className="space-y-5 max-h-[70vh] overflow-y-auto">
+      <div>
+        <h4 className="text-xs font-bold uppercase tracking-wide text-accent mb-2">Caractérisation</h4>
+        <DetailRow label="Type de déchet" value={<span className="capitalize">{item.type}</span>} />
+        <DetailRow label="Radionucléide" value={item.radionuclide} />
+        <DetailRow label="Statut" value={<StatusBadge status={item.status} />} />
+        <DetailRow label="Activité initiale" value={num(item.initialActivity, 'MBq')} />
+        <DetailRow label="Date de mesure" value={dateFr(item.measureDate)} />
+        <DetailRow label="Masse brute" value={num(item.mass, 'g')} />
+        <DetailRow label="Tare du contenant" value={num(item.containerTare, 'g')} />
+      </div>
+
+      <div>
+        <h4 className="text-xs font-bold uppercase tracking-wide text-accent mb-2">Mesures à l&apos;entrée</h4>
+        <DetailRow label="Bruit de fond du local (entrée)" value={num(item.backgroundDoseRate, 'µSv/h')} />
+        <DetailRow label="Débit de dose au contact (entrée)" value={num(item.doseRateContact, 'µSv/h')} />
+        <DetailRow label="Débit de dose à 1 m (entrée)" value={num(item.doseRate1m, 'µSv/h')} />
+        <DetailRow label="Date d&apos;entrée en stockage" value={dateFr(item.storageEntryDate)} />
+      </div>
+
+      <div>
+        <h4 className="text-xs font-bold uppercase tracking-wide text-accent mb-2">Conformité (dictionnaire v2)</h4>
+        <DetailRow
+          label={hasTare ? 'Masse nette (brute − tare)' : 'Masse nette'}
+          value={ev.netMassG !== null
+            ? (hasTare
+                ? `${fmtNum(ev.netMassG, 2)} g`
+                : `${fmtNum(ev.netMassG, 2)} g (= masse brute, tare non renseignée)`)
+            : '—'}
+        />
+        <DetailRow label="Activité massique" value={ev.massicBqPerG !== null ? `${fmtNum(ev.massicBqPerG, 2)} Bq/g` : '—'} />
+        <DetailRow label="Niveau de libération applicable" value={ev.clearanceLevelBqPerG !== null ? `${fmtNum(ev.clearanceLevelBqPerG, 2)} Bq/g` : '—'} />
+        <DetailRow
+          label="Durée théorique de libération (t_lib)"
+          value={ev.tLibHours !== null ? `${fmtNum(ev.tLibHours, 1)} h (${fmtNum(ev.tLibHours / 24, 2)} j)` : '—'}
+        />
+        <DetailRow label="Durée de stockage réelle" value={ev.storageHours !== null ? `${fmtNum(ev.storageHours, 1)} h` : '—'} />
+        <DetailRow
+          label="Indice de conformité (stockage / t_lib)"
+          value={ev.conformityIndex !== null ? ev.conformityIndex.toFixed(2) : '—'}
+        />
+        {item.exitBackgroundDoseRate !== undefined && netExit !== null && (
+          <DetailRow label="Débit de sortie net du bruit de fond" value={`${fmtNum(netExit, 2)} µSv/h`} />
+        )}
+
+        <div className="flex flex-wrap items-center gap-4 pt-3">
+          <div className="flex items-center gap-2">
+            <span className="text-[11px] text-muted">Calculé</span>
+            <span className={`px-3 py-1 text-[11px] font-black rounded-full ${verdict.cls}`}>{verdict.label}</span>
+          </div>
+          <div className="flex items-center gap-2">
+            <span className="text-[11px] text-muted">Déclaré</span>
+            {declared
+              ? <span className={`px-3 py-1 text-[11px] font-black rounded-full ${declared.cls}`}>{declared.label}</span>
+              : <span className="text-xs text-faint">—</span>}
+          </div>
+        </div>
+        <p className="text-xs text-muted mt-1">
+          Le verdict « Calculé » est établi automatiquement (règle ET), jamais saisi ; « Déclaré » est la conformité renseignée par le contrôleur.
+        </p>
+
+        {ev.conforme === null && ev.missing.length > 0 && (
+          <p className="text-xs text-faint mt-2">
+            Données manquantes : {ev.missing.join(', ')}.
+          </p>
+        )}
+      </div>
+
+      <div>
+        <h4 className="text-xs font-bold uppercase tracking-wide text-accent mb-2">Sortie / élimination</h4>
+        {hasExitData ? (
+          <>
+            <DetailRow label="Date de sortie / élimination" value={dateFr(item.eliminationDate ?? item.exitControlDate)} />
+            <DetailRow label="Mode d&apos;élimination" value={item.eliminationMode ?? '—'} />
+            <DetailRow label="Bruit de fond du local (sortie)" value={num(item.exitBackgroundDoseRate, 'µSv/h')} />
+            <DetailRow label="Débit de dose de sortie au contact (brut)" value={num(item.exitDoseRate, 'µSv/h')} />
+            <DetailRow label="Débit de dose de sortie à 1 m" value={num(item.exitDoseRate1m, 'µSv/h')} />
+            <DetailRow label="Contrôleur de sortie" value={item.exitController ?? '—'} />
+          </>
+        ) : (
+          <p className="text-xs text-faint">Aucune donnée de sortie enregistrée.</p>
+        )}
       </div>
     </div>
   );

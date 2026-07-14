@@ -58,7 +58,13 @@ service cloud.firestore {
              data.hospitalId is string && data.hospitalId.size() <= 128 &&
              (!('initialActivity' in data) || data.initialActivity is number) &&
              (!('halfLife' in data) || data.halfLife is number) &&
-             (!('mass' in data) || data.mass is number);
+             (!('mass' in data) || data.mass is number) &&
+             // Dictionnaire de données v2 : tare, bruit de fond et mesures de sortie réelles.
+             (!('containerTare' in data) || (data.containerTare is number && data.containerTare >= 0)) &&
+             (!('backgroundDoseRate' in data) || (data.backgroundDoseRate is number && data.backgroundDoseRate >= 0)) &&
+             (!('exitBackgroundDoseRate' in data) || (data.exitBackgroundDoseRate is number && data.exitBackgroundDoseRate >= 0)) &&
+             (!('exitDoseRate' in data) || (data.exitDoseRate is number && data.exitDoseRate >= 0)) &&
+             (!('exitDoseRate1m' in data) || (data.exitDoseRate1m is number && data.exitDoseRate1m >= 0));
     }
 
     function isValidIncident(data) {

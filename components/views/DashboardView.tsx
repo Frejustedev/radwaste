@@ -14,9 +14,9 @@ import {
   YAxis,
   CartesianGrid,
 } from 'recharts';
-import { Plus, ClipboardCheck, FileText, Package, Activity, CheckCircle2, AlertTriangle, ShieldAlert } from 'lucide-react';
+import { Plus, ClipboardCheck, FileText, Package, Activity, CheckCircle2, AlertTriangle, ShieldAlert, ShieldCheck } from 'lucide-react';
 import type { WasteItem, Incident } from '@/types';
-import { residualActivityMBq } from '@/lib/physics/decay';
+import { evaluateConformity, residualActivityMBq } from '@/lib/physics/decay';
 import { KPICard, StatusBadge } from '@/components/ui/Primitives';
 import { DataTable, type Column } from '@/components/ui/DataTable';
 
@@ -106,6 +106,19 @@ export function DashboardView({ wasteItems, incidents, onNavigate, theme }: Dash
     () => wasteItems.filter((w) => w.exitConformity === false).length,
     [wasteItems],
   );
+
+  // Conformité CALCULÉE (activité massique ≤ seuil ET indice de conformité ≥ 1) sur les déchets éliminés.
+  const conformite = useMemo(() => {
+    const tally = { conformes: 0, nonConformes: 0, indetermines: 0 };
+    for (const w of wasteItems) {
+      if (w.status !== 'elimine') continue;
+      const { conforme } = evaluateConformity(w);
+      if (conforme === null) tally.indetermines += 1;
+      else if (conforme) tally.conformes += 1;
+      else tally.nonConformes += 1;
+    }
+    return tally;
+  }, [wasteItems]);
 
   const statusChartData = useMemo(
     () => [
@@ -211,7 +224,7 @@ export function DashboardView({ wasteItems, incidents, onNavigate, theme }: Dash
       </div>
 
       {/* KPIs */}
-      <div className="grid grid-cols-2 lg:grid-cols-5 gap-4">
+      <div className="grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-4">
         <KPICard
           title="En Stockage"
           value={stockageCount}
@@ -244,6 +257,18 @@ export function DashboardView({ wasteItems, incidents, onNavigate, theme }: Dash
           icon={<AlertTriangle className="h-5 w-5" />}
           valueClass="text-red-500"
           hint="Incidents déclarés (déversement, contamination, perte de déchet)."
+        />
+        <KPICard
+          title="Conformité calculée"
+          value={
+            <div className="text-sm font-bold not-italic tracking-normal space-y-0.5">
+              <div className="text-green-600">{conformite.conformes} conforme(s)</div>
+              <div className="text-red-500">{conformite.nonConformes} non conforme(s)</div>
+              <div className="text-muted">{conformite.indetermines} indéterminé(s)</div>
+            </div>
+          }
+          icon={<ShieldCheck className="h-5 w-5" />}
+          hint="Déchets éliminés : conformité calculée (activité massique ≤ seuil ET indice de conformité ≥ 1). Indéterminé = donnée manquante."
         />
       </div>
 

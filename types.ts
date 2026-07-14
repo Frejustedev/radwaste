@@ -18,8 +18,10 @@ export interface WasteItem {
   originService?: string; // Service d'origine (paramétrable)
   responsibleOperator?: string; // Opérateur responsable
   initialActivity?: number; // activité initiale en MBq
-  mass?: number; // masse du colis en grammes (nécessaire au calcul de l'activité massique)
+  mass?: number; // masse BRUTE du colis en grammes (contenant + contenu)
+  containerTare?: number; // tare du contenant en grammes ; masse nette = mass - containerTare
   measureDate?: string; // Date et heure de mesure (ISO)
+  backgroundDoseRate?: number; // Bruit de fond du local au moment de la mesure (µSv/h)
   doseRateContact?: number; // Débit de dose au contact (µSv/h)
   doseRate1m?: number; // Débit de dose à 1 mètre (µSv/h)
   halfLife?: number; // demi-vie physique en heures
@@ -42,8 +44,10 @@ export interface WasteItem {
 
   // Sortie et Élimination (si éliminé)
   exitControlDate?: string;
-  exitDoseRate?: number;
-  exitConformity?: boolean;
+  exitBackgroundDoseRate?: number; // Bruit de fond du local lors du contrôle de sortie (µSv/h)
+  exitDoseRate?: number; // Débit de dose de sortie AU CONTACT (µSv/h) — mesure réelle
+  exitDoseRate1m?: number; // Débit de dose de sortie à 1 mètre (µSv/h) — mesure réelle
+  exitConformity?: boolean; // Conformité DÉCLARÉE par le contrôleur (la conformité CALCULÉE vit dans lib/physics)
   exitController?: string;
   exitSignedBy?: string; // e-mail du compte authentifié ayant validé (signature électronique)
   eliminationDate?: string;

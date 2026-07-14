@@ -30,7 +30,9 @@ export interface WasteFormValue {
   originService?: string;
   initialActivity?: number;
   mass?: number;
+  containerTare?: number;
   halfLife?: number;
+  backgroundDoseRate?: number;
   doseRateContact?: number;
   doseRate1m?: number;
   clearanceLevelBqPerG?: number;
@@ -51,8 +53,10 @@ export function validateWasteForm(input: {
   radionuclide: string;
   initialActivity: string;
   mass: string;
+  containerTare: string;
   halfLife: string;
   measureDate: string;
+  backgroundDoseRate: string;
   doseRateContact: string;
   doseRate1m: string;
   clearanceLevelBqPerG: string;
@@ -74,8 +78,10 @@ export function validateWasteForm(input: {
   };
 
   const initialActivity = optionalNumber(input.initialActivity, 'initialActivity', 'Activité initiale (MBq)');
-  const mass = optionalNumber(input.mass, 'mass', 'Masse du colis (g)');
+  const mass = optionalNumber(input.mass, 'mass', 'Masse brute (g)');
+  const containerTare = optionalNumber(input.containerTare, 'containerTare', 'Tare du contenant (g)', true);
   const halfLife = optionalNumber(input.halfLife, 'halfLife', 'Demi-vie physique (h)');
+  const backgroundDoseRate = optionalNumber(input.backgroundDoseRate, 'backgroundDoseRate', 'Bruit de fond du local (µSv/h)', true);
   const doseRateContact = optionalNumber(input.doseRateContact, 'doseRateContact', 'Débit de dose au contact', true);
   const doseRate1m = optionalNumber(input.doseRate1m, 'doseRate1m', 'Débit de dose à 1 m', true);
   const clearanceLevelBqPerG = optionalNumber(input.clearanceLevelBqPerG, 'clearanceLevelBqPerG', 'Niveau de libération (Bq/g)');
@@ -90,6 +96,12 @@ export function validateWasteForm(input: {
     else measureDate = d.toISOString();
   }
 
+  // Seule contrainte physique imposée entre deux champs facultatifs : une tare qui annule ou
+  // dépasse la masse brute rendrait la masse nette — donc l'activité massique — incalculable.
+  if (mass !== undefined && containerTare !== undefined && containerTare >= mass) {
+    errors.push({ field: 'containerTare', message: 'La tare doit être inférieure à la masse brute (masse nette = brute − tare).' });
+  }
+
   if (errors.length > 0) return { ok: false, errors };
 
   return {
@@ -99,7 +111,9 @@ export function validateWasteForm(input: {
       originService: isNonEmptyString(input.originService) ? input.originService : undefined,
       initialActivity,
       mass,
+      containerTare,
       halfLife,
+      backgroundDoseRate,
       doseRateContact,
       doseRate1m,
       clearanceLevelBqPerG,
@@ -123,7 +137,11 @@ function checkWasteItem(o: unknown): o is WasteItem {
     && typeof w.status === 'string' && WASTE_STATUSES.includes(w.status as WasteStatus)
     && (w.initialActivity === undefined || typeof w.initialActivity === 'number')
     && (w.halfLife === undefined || typeof w.halfLife === 'number')
-    && (w.mass === undefined || typeof w.mass === 'number');
+    && (w.mass === undefined || typeof w.mass === 'number')
+    && (w.containerTare === undefined || typeof w.containerTare === 'number')
+    && (w.backgroundDoseRate === undefined || typeof w.backgroundDoseRate === 'number')
+    && (w.exitBackgroundDoseRate === undefined || typeof w.exitBackgroundDoseRate === 'number')
+    && (w.exitDoseRate1m === undefined || typeof w.exitDoseRate1m === 'number');
 }
 
 function checkIncident(o: unknown): o is Incident {

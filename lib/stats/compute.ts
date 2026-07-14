@@ -1,5 +1,5 @@
 import type { WasteItem, Incident } from '@/types';
-import { residualActivityMBq } from '@/lib/physics/decay';
+import { residualActivityMBq, evaluateConformity } from '@/lib/physics/decay';
 
 export interface CountStat { label: string; count: number; }
 export interface RadionuclideStat {
@@ -9,6 +9,36 @@ export interface RadionuclideStat {
   residualActivityMBq: number;
 }
 export interface MonthlyStat { month: string; created: number; eliminated: number; }
+
+/**
+ * Conformité CALCULÉE (lib/physics), évaluée sur les seuls déchets ÉLIMINÉS.
+ * Distincte de `conformity`, qui compte la conformité DÉCLARÉE par le contrôleur.
+ * Les taux sont en pourcentage, ou null quand aucun déchet n'a été éliminé (pas de division par zéro).
+ */
+export interface ComputedConformityStats {
+  evaluated: number;
+  conforme: number;
+  nonConforme: number;
+  indetermine: number;
+  conformeRate: number | null;
+  nonConformeRate: number | null;
+  indetermineRate: number | null;
+  meanIndex: number | null;
+  medianIndex: number | null;
+  meanStorageHours: number | null;
+  meanTLibHours: number | null;
+  /** Déchets sortis avant la fin de la décroissance théorique (indice de conformité < 1). */
+  releasedTooEarly: number;
+}
+
+/** Taux de remplissage d'un champ critique du dossier. `rate` est null si le périmètre est vide. */
+export interface CompletenessStat {
+  label: string;
+  scope: 'tous' | 'elimines';
+  filled: number;
+  total: number;
+  rate: number | null;
+}
 
 export interface StatsResult {
   totals: {
@@ -30,6 +60,8 @@ export interface StatsResult {
   byStatus: CountStat[];
   byEliminationMode: CountStat[];
   conformity: { conforme: number; derogation: number };
+  computedConformity: ComputedConformityStats;
+  completeness: CompletenessStat[];
   meanStorageDays: number | null;
   incidents: {
     total: number;
@@ -64,8 +96,97 @@ function mean(values: number[]): number | null {
   return values.reduce((s, v) => s + v, 0) / values.length;
 }
 
+function median(values: number[]): number | null {
+  if (values.length === 0) return null;
+  const sorted = [...values].sort((a, b) => a - b);
+  const mid = Math.floor(sorted.length / 2);
+  return sorted.length % 2 === 0 ? (sorted[mid - 1] + sorted[mid]) / 2 : sorted[mid];
+}
+
+/** Pourcentage, ou null si le dénominateur est nul. */
+function rate(part: number, total: number): number | null {
+  return total > 0 ? (part / total) * 100 : null;
+}
+
 function monthKey(d: Date): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+}
+
+function hasNumber(value: unknown): boolean {
+  return typeof value === 'number' && Number.isFinite(value);
+}
+
+function hasDate(value: string | undefined): boolean {
+  return typeof value === 'string' && value.trim() !== '' && !Number.isNaN(new Date(value).getTime());
+}
+
+/**
+ * Champs critiques du dictionnaire de données dont on mesure le taux de remplissage.
+ * Les champs de sortie ne sont comptés que sur les déchets éliminés, seul périmètre où ils sont attendus.
+ */
+const COMPLETENESS_FIELDS: { label: string; scope: 'tous' | 'elimines'; filled: (w: WasteItem) => boolean }[] = [
+  { label: 'Activité initiale (MBq)', scope: 'tous', filled: (w) => hasNumber(w.initialActivity) },
+  { label: 'Masse brute (g)', scope: 'tous', filled: (w) => hasNumber(w.mass) },
+  { label: 'Tare du contenant (g)', scope: 'tous', filled: (w) => hasNumber(w.containerTare) },
+  { label: 'Demi-vie (h)', scope: 'tous', filled: (w) => hasNumber(w.halfLife) },
+  { label: 'Date et heure de mesure', scope: 'tous', filled: (w) => hasDate(w.measureDate) },
+  { label: 'Bruit de fond du local (µSv/h)', scope: 'tous', filled: (w) => hasNumber(w.backgroundDoseRate) },
+  { label: 'Débit de dose au contact (µSv/h)', scope: 'tous', filled: (w) => hasNumber(w.doseRateContact) },
+  { label: 'Débit de dose à 1 m (µSv/h)', scope: 'tous', filled: (w) => hasNumber(w.doseRate1m) },
+  { label: "Date d'entrée en stockage", scope: 'tous', filled: (w) => hasDate(w.storageEntryDate) },
+  { label: 'Date de sortie', scope: 'elimines', filled: (w) => hasDate(w.eliminationDate) || hasDate(w.exitControlDate) },
+  { label: 'Bruit de fond à la sortie (µSv/h)', scope: 'elimines', filled: (w) => hasNumber(w.exitBackgroundDoseRate) },
+  { label: 'Débit de dose de sortie au contact (µSv/h)', scope: 'elimines', filled: (w) => hasNumber(w.exitDoseRate) },
+  { label: 'Débit de dose de sortie à 1 m (µSv/h)', scope: 'elimines', filled: (w) => hasNumber(w.exitDoseRate1m) },
+];
+
+/** Taux de remplissage de chaque champ critique — rend visibles les trous du registre. */
+export function computeCompleteness(wasteItems: WasteItem[]): CompletenessStat[] {
+  const eliminated = wasteItems.filter((w) => w.status === 'elimine');
+  return COMPLETENESS_FIELDS.map(({ label, scope, filled }) => {
+    const pool = scope === 'elimines' ? eliminated : wasteItems;
+    const count = pool.reduce((n, w) => n + (filled(w) ? 1 : 0), 0);
+    return { label, scope, filled: count, total: pool.length, rate: rate(count, pool.length) };
+  });
+}
+
+/** Agrège la conformité CALCULÉE sur les déchets éliminés (indicateur de preuve documentaire). */
+export function computeComputedConformity(wasteItems: WasteItem[], now: Date = new Date()): ComputedConformityStats {
+  const eliminated = wasteItems.filter((w) => w.status === 'elimine');
+  const indices: number[] = [];
+  const storageHours: number[] = [];
+  const tLibHours: number[] = [];
+  let conforme = 0, nonConforme = 0, indetermine = 0, releasedTooEarly = 0;
+
+  for (const w of eliminated) {
+    const ev = evaluateConformity(w, now);
+    if (ev.conforme === null) indetermine += 1;
+    else if (ev.conforme) conforme += 1;
+    else nonConforme += 1;
+
+    if (ev.conformityIndex !== null) {
+      indices.push(ev.conformityIndex);
+      if (ev.conformityIndex < 1) releasedTooEarly += 1;
+    }
+    if (ev.storageHours !== null) storageHours.push(ev.storageHours);
+    if (ev.tLibHours !== null) tLibHours.push(ev.tLibHours);
+  }
+
+  const evaluated = eliminated.length;
+  return {
+    evaluated,
+    conforme,
+    nonConforme,
+    indetermine,
+    conformeRate: rate(conforme, evaluated),
+    nonConformeRate: rate(nonConforme, evaluated),
+    indetermineRate: rate(indetermine, evaluated),
+    meanIndex: mean(indices),
+    medianIndex: median(indices),
+    meanStorageHours: mean(storageHours),
+    meanTLibHours: mean(tLibHours),
+    releasedTooEarly,
+  };
 }
 
 /** Calcule l'ensemble des statistiques à partir d'un jeu (déjà filtré) de déchets et incidents. */
@@ -166,6 +287,8 @@ export function computeStats(wasteItems: WasteItem[], incidents: Incident[], now
     byStatus: toCountStats(statusMap),
     byEliminationMode: toCountStats(elimModeMap),
     conformity: { conforme, derogation },
+    computedConformity: computeComputedConformity(wasteItems, now),
+    completeness: computeCompleteness(wasteItems),
     meanStorageDays: mean(storageDurations),
     incidents: {
       total: incidents.length,
@@ -208,6 +331,27 @@ export function statsToCsvRows(s: StatsResult): string[][] {
   add('Conformité des sorties', 'Conformes', s.conformity.conforme);
   add('Conformité des sorties', 'Dérogations (non conformes)', s.conformity.derogation);
   add('Délais', 'Durée moyenne de stockage (jours)', s.meanStorageDays !== null ? s.meanStorageDays.toFixed(1) : 'n/a');
+
+  const cc = s.computedConformity;
+  const pct = (v: number | null) => (v !== null ? `${v.toFixed(1)} %` : 'n/a');
+  const dec = (v: number | null, digits: number) => (v !== null ? v.toFixed(digits) : 'n/a');
+  add('Conformité calculée', 'Déchets éliminés évalués', cc.evaluated);
+  add('Conformité calculée', 'Conformes', cc.conforme);
+  add('Conformité calculée', 'Taux de conformes', pct(cc.conformeRate));
+  add('Conformité calculée', 'Non conformes', cc.nonConforme);
+  add('Conformité calculée', 'Taux de non conformes', pct(cc.nonConformeRate));
+  add('Conformité calculée', 'Indéterminés (données manquantes)', cc.indetermine);
+  add('Conformité calculée', "Taux d'indéterminés", pct(cc.indetermineRate));
+  add('Conformité calculée', 'Indice de conformité médian', dec(cc.medianIndex, 3));
+  add('Conformité calculée', 'Indice de conformité moyen', dec(cc.meanIndex, 3));
+  add('Conformité calculée', 'Durée de stockage moyenne (h)', dec(cc.meanStorageHours, 2));
+  add('Conformité calculée', 'Durée théorique de libération moyenne t_lib (h)', dec(cc.meanTLibHours, 2));
+  add('Conformité calculée', 'Sortis trop tôt (indice < 1)', cc.releasedTooEarly);
+
+  s.completeness.forEach((c) => {
+    const scope = c.scope === 'elimines' ? 'éliminés' : 'tous';
+    add('Complétude des données', `${c.label} [${scope}]`, `${c.filled}/${c.total} (${pct(c.rate)})`);
+  });
 
   s.incidents.byType.forEach((c) => add('Incidents par type', c.label, c.count));
   add('Incidents', 'Dose moyenne avant (µSv/h)', s.incidents.meanDoseBefore !== null ? s.incidents.meanDoseBefore.toFixed(2) : 'n/a');

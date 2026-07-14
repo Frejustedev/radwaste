@@ -3,7 +3,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { Activity, BellRing } from 'lucide-react';
 import type { WasteItem, User } from '@/types';
-import { evaluateDecay, residualActivityMBq } from '@/lib/physics/decay';
+import { evaluateConformity, evaluateDecay, netMassG, residualActivityMBq, type ConformityEvaluation } from '@/lib/physics/decay';
 import { releaseWasteItems } from '@/lib/repositories/wasteRepository';
 import { writeLog } from '@/lib/repositories/logRepository';
 import { useToast } from '@/components/ui/Toast';
@@ -18,6 +18,47 @@ interface DecroissanceViewProps {
 const fmtNum = (v: number | null, d: number): string => (v === null ? '—' : v.toFixed(d));
 const fmtExp = (v: number | null): string => (v === null ? '—' : v.toExponential(2));
 const fmtDate = (v: Date | null): string => (v === null ? '—' : v.toLocaleDateString('fr-FR'));
+const fmtMass = (v: number): string => (Number.isInteger(v) ? String(v) : v.toFixed(1));
+/** Durée exprimée en heures puis en jours, ex. « 96,0 h (4,0 j) ». */
+const fmtDuration = (h: number | null): string => (h === null ? '—' : `${h.toFixed(1)} h (${(h / 24).toFixed(1)} j)`);
+
+/** Libellé de la masse retenue pour l'activité massique : masse nette, tare explicitée si elle existe. */
+function massLabel(item: WasteItem): string {
+  const net = netMassG(item);
+  if (net === null) return '—';
+  const { mass, containerTare } = item;
+  if (typeof mass === 'number' && typeof containerTare === 'number' && containerTare > 0) {
+    return `${fmtMass(net)} g nets (${fmtMass(mass)} g bruts − ${fmtMass(containerTare)} g de tare)`;
+  }
+  return `${fmtMass(net)} g nets (pas de tare renseignée)`;
+}
+
+const VERDICT: Record<'oui' | 'non' | 'inconnu', { label: string; className: string }> = {
+  oui: { label: 'CONFORME', className: 'bg-green-500/20 text-green-600' },
+  non: { label: 'NON CONFORME', className: 'bg-red-500/20 text-red-500' },
+  inconnu: { label: 'INDÉTERMINÉ', className: 'bg-slate-500/20 text-slate-500' },
+};
+
+const verdictKey = (c: ConformityEvaluation): 'oui' | 'non' | 'inconnu' =>
+  c.conforme === null ? 'inconnu' : c.conforme ? 'oui' : 'non';
+
+/**
+ * Un déchet est « sorti » dès qu'une date d'élimination OU de contrôle de sortie est renseignée
+ * (miroir de la logique du cœur). Tant qu'il n'est pas sorti, la conformité — preuve documentaire
+ * jugée à la sortie — reste indéterminée par construction : on ne l'affiche pas comme un défaut.
+ */
+const hasExited = (w: WasteItem): boolean => Boolean(w.eliminationDate || w.exitControlDate);
+
+/**
+ * Rang de RISQUE pour le tri de la colonne conformité (ordre croissant = plus risqué en premier) :
+ * non conforme (0) → indéterminé mais déjà sorti (1) → en stockage / en attente (2) → conforme (3).
+ */
+function conformityRisk(w: WasteItem, c: ConformityEvaluation): number {
+  if (!hasExited(w)) return 2;
+  if (c.conforme === false) return 0;
+  if (c.conforme === null) return 1;
+  return 3;
+}
 
 export function DecroissanceView({ wasteItems, profile }: DecroissanceViewProps): React.ReactElement {
   const { success, error } = useToast();
@@ -37,6 +78,15 @@ export function DecroissanceView({ wasteItems, profile }: DecroissanceViewProps)
   }, [tick]);
 
   const rows = useMemo(() => wasteItems.filter((w) => w.status !== 'elimine'), [wasteItems]);
+
+  // Conformité évaluée UNE SEULE fois par ligne (et par tick de 60 s), puis réutilisée par
+  // toutes les callbacks de colonne (render / sortValue / csvValue) via `evalOf`.
+  const conformityByRow = useMemo<Map<string, ConformityEvaluation>>(() => {
+    const m = new Map<string, ConformityEvaluation>();
+    for (const w of rows) m.set(w.id, evaluateConformity(w, now));
+    return m;
+  }, [rows, now]);
+  const evalOf = (w: WasteItem): ConformityEvaluation => conformityByRow.get(w.id) ?? evaluateConformity(w, now);
 
   // Alerte automatique : déchets « en stockage » ayant déjà atteint le seuil réglementaire.
   const readyIds = useMemo<Set<string>>(() => {
@@ -154,10 +204,73 @@ export function DecroissanceView({ wasteItems, profile }: DecroissanceViewProps)
             <div className="mt-1 space-y-0.5 text-xs text-muted">
               <div>Décroissance : {fmtNum(decay.decayPct, 1)}%</div>
               <div>Activité massique : {fmtExp(decay.massicBqPerG)} Bq/g (seuil {decay.clearanceLevelBqPerG ?? '—'} Bq/g)</div>
+              <div>Masse retenue : {massLabel(w)}</div>
               <div>Périodes : {fmtNum(decay.halfLives, 1)}</div>
               <div>Date sortie estimée : {fmtDate(decay.releaseDate)}</div>
             </div>
             {reason && <div className="mt-2 text-xs text-faint">{reason}</div>}
+          </div>
+        );
+      },
+    },
+    {
+      key: 'conformite',
+      header: 'Conformité calculée',
+      // Tri par RISQUE (non conforme d'abord), pas par ordre alphabétique du libellé.
+      sortValue: (w) => conformityRisk(w, evalOf(w)),
+      csvValue: (w) => {
+        if (!hasExited(w)) return 'En stockage (conformité évaluée à la sortie)';
+        const c = evalOf(w);
+        const index = c.conformityIndex === null ? '' : ` (indice ${c.conformityIndex.toFixed(2)})`;
+        return `${VERDICT[verdictKey(c)].label}${index}`;
+      },
+      render: (w) => {
+        const c = evalOf(w);
+        const noWaitRequired = c.tLibHours !== null && c.tLibHours <= 0;
+        // Sous-lignes informatives (t_lib, durée réelle, indice) conservées dans les deux cas.
+        const details = (
+          <div className="mt-1 space-y-0.5 text-xs text-muted">
+            <div>
+              Durée théorique (t_lib) :{' '}
+              {noWaitRequired ? '0 h — aucune attente requise' : fmtDuration(c.tLibHours)}
+            </div>
+            <div>Durée de stockage réelle : {fmtDuration(c.storageHours)}</div>
+            <div>
+              Indice de conformité :{' '}
+              {c.conformityIndex === null
+                ? (noWaitRequired ? 'sans objet (aucune attente requise)' : '—')
+                : `${c.conformityIndex.toFixed(2)} — ${c.conformityIndex >= 1 ? 'gardé assez longtemps' : 'sorti avant la fin de la décroissance théorique'}`}
+            </div>
+          </div>
+        );
+
+        // Déchet encore en stock : la conformité est une preuve documentaire jugée À LA SORTIE.
+        // Pas de verdict CONFORME/NON CONFORME/INDÉTERMINÉ, pas d'alerte « Date de sortie manquante ».
+        if (!hasExited(w)) {
+          // On surface tout de même d'éventuelles données manquantes RÉELLES (hors date de sortie, attendue).
+          const realMissing = c.missing.filter((m) => m !== 'Date de sortie');
+          return (
+            <div>
+              <span className="inline-block px-3 py-1 text-[11px] font-bold rounded-full bg-slate-500/15 text-muted">
+                En stockage — conformité évaluée à la sortie
+              </span>
+              {details}
+              {realMissing.length > 0 && (
+                <div className="mt-2 text-xs text-faint">Données manquantes : {realMissing.join(' ; ')}.</div>
+              )}
+            </div>
+          );
+        }
+
+        // Déchet réellement sorti : verdict documentaire figé à la date de sortie.
+        const verdict = VERDICT[verdictKey(c)];
+        return (
+          <div>
+            <span className={`px-3 py-1 text-[11px] font-black rounded-full ${verdict.className}`}>{verdict.label}</span>
+            {details}
+            {c.missing.length > 0 && (
+              <div className="mt-2 text-xs text-faint">Données manquantes : {c.missing.join(' ; ')}.</div>
+            )}
           </div>
         );
       },

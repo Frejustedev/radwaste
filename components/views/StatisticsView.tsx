@@ -7,9 +7,11 @@ import {
 } from 'recharts';
 import { Download, FileSpreadsheet, FileJson, Printer, Boxes, Activity, CheckCircle2, ShieldAlert, AlertTriangle, Users2 } from 'lucide-react';
 import type { WasteItem, Incident, User, AppSettings } from '@/types';
-import { residualActivityMBq, massicActivityBqPerG, theoreticalReleaseDate } from '@/lib/physics/decay';
-import { computeStats, statsToCsvRows } from '@/lib/stats/compute';
-import { downloadCsv } from '@/lib/export/csv';
+import { computeStats, statsToCsvRows, type CompletenessStat } from '@/lib/stats/compute';
+import {
+  downloadCsv, downloadJson, wasteExportHeaders, wasteExportRows,
+  wasteExportRecords, wasteExportFieldLabels,
+} from '@/lib/export/csv';
 import { writeLog } from '@/lib/repositories/logRepository';
 import { KPICard, SectionHeader } from '@/components/ui/Primitives';
 import { useToast } from '@/components/ui/Toast';
@@ -24,17 +26,14 @@ interface StatisticsViewProps {
 
 const PALETTE = ['#FACC15', '#22C55E', '#3B82F6', '#A855F7', '#64748B', '#EF4444', '#14B8A6', '#F97316', '#EC4899', '#84CC16'];
 
-function fmtDate(iso?: string): string {
-  if (!iso) return '';
-  const d = new Date(iso);
-  return Number.isNaN(d.getTime()) ? '' : d.toLocaleDateString('fr-FR');
+/** Valeur numérique formatée, ou tiret cadratin si la donnée est absente (jamais « 0 »). */
+function fmtNum(value: number | null, digits = 1, suffix = ''): string {
+  return value !== null ? `${value.toFixed(digits)}${suffix}` : '—';
 }
 
-/** Date + heure (les dates réglementaires doivent conserver l'heure). */
-function fmtDateTime(iso?: string): string {
-  if (!iso) return '';
-  const d = new Date(iso);
-  return Number.isNaN(d.getTime()) ? '' : d.toLocaleString('fr-FR');
+/** « 3 (75 %) » — le taux disparaît quand le périmètre est vide, faute de dénominateur. */
+function countWithRate(count: number, rate: number | null): string {
+  return rate !== null ? `${count} (${rate.toFixed(0)} %)` : String(count);
 }
 
 export function StatisticsView({ wasteItems, incidents, profile, settings, theme }: StatisticsViewProps) {
@@ -77,6 +76,7 @@ export function StatisticsView({ wasteItems, incidents, profile, settings, theme
   }), [incidents, startTs, endTs]);
 
   const stats = useMemo(() => computeStats(filteredWaste, filteredIncidents), [filteredWaste, filteredIncidents]);
+  const cc = stats.computedConformity;
 
   const statusChart = stats.byStatus.map((s) => ({ name: s.label, value: s.count }));
   const rnChart = stats.byRadionuclide.map((r) => ({ name: r.radionuclide, déchets: r.count }));
@@ -90,66 +90,23 @@ export function StatisticsView({ wasteItems, incidents, profile, settings, theme
   }
 
   function handleExportDataCsv() {
-    const headers = [
-      // Identification
-      'ID technique', 'N° registre', 'Créé le', 'Statut', 'Type', 'Radionucléide',
-      "Service d'origine", 'Opérateur responsable',
-      // Radioactivité
-      'Activité initiale (MBq)', 'Masse (g)', 'Demi-vie (h)', 'Date et heure de mesure',
-      'Activité résiduelle calculée (MBq)', 'Activité massique calculée (Bq/g)',
-      'Débit de dose au contact (µSv/h)', 'Débit de dose à 1 m (µSv/h)',
-      'Niveau de libération (Bq/g)', 'Seuil de dose pour libération (µSv/h)',
-      'Date théorique de libération',
-      // Activité hospitalière du jour
-      'Patients du jour', 'Élution du jour (MBq)', 'Examens du jour',
-      // Stockage
-      'Date entrée en stockage', 'Responsable du stockage',
-      // Sortie / élimination
-      'Date du contrôle de sortie', 'Débit de dose à la sortie (µSv/h)', 'Date de sortie / élimination',
-      "Mode d'élimination", 'Conformité', 'Contrôleur de sortie', "Responsable de l'élimination",
-      'Signature électronique (compte)',
-    ];
-    const rows = filteredWaste.map((w) => {
-      const res = residualActivityMBq(w);
-      const massic = massicActivityBqPerG(w);
-      const releaseDate = theoreticalReleaseDate(w);
-      return [
-        // Identification
-        w.id, w.registryNumber ?? '', fmtDate(w.createdAt), w.status, w.type, w.radionuclide,
-        w.originService ?? '', w.responsibleOperator ?? '',
-        // Radioactivité
-        w.initialActivity ?? '', w.mass ?? '', w.halfLife ?? '', fmtDateTime(w.measureDate),
-        res !== null ? res.toFixed(4) : '', massic !== null ? massic.toExponential(3) : '',
-        w.doseRateContact ?? '', w.doseRate1m ?? '',
-        w.clearanceLevelBqPerG ?? '', w.releaseDoseThreshold ?? '',
-        releaseDate ? releaseDate.toLocaleDateString('fr-FR') : '',
-        // Activité du jour
-        w.dailyPatientCount ?? '', w.dailyElution ?? '', (w.dailyExamTypes ?? []).join(' / '),
-        // Stockage
-        fmtDateTime(w.storageEntryDate), w.storageResponsible ?? '',
-        // Sortie
-        fmtDateTime(w.exitControlDate), w.exitDoseRate ?? '', fmtDateTime(w.eliminationDate),
-        w.eliminationMode ?? '',
-        w.status === 'elimine' ? (w.exitConformity === false ? 'Dérogation' : 'Conforme') : '',
-        w.exitController ?? '', w.eliminationResponsible ?? '', w.exitSignedBy ?? '',
-      ].map(String);
-    });
+    const headers = wasteExportHeaders();
+    const rows = wasteExportRows(filteredWaste);
     downloadCsv('donnees_dechets_radwaste.csv', headers, rows);
     success(`Données exportées : ${rows.length} déchet(s), ${headers.length} colonnes.`);
     void writeLog(profile.hospitalId, 'Export des données déchets (CSV).');
   }
 
   function handleExportJson() {
-    const blob = new Blob([JSON.stringify({ generatedAt: new Date().toISOString(), filters: { start, end, radionuclide, status, examType }, stats }, null, 2)], { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = 'statistiques_radwaste.json';
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    URL.revokeObjectURL(url);
-    success('Statistiques exportées (JSON).');
+    downloadJson('statistiques_radwaste.json', {
+      generatedAt: new Date().toISOString(),
+      filters: { start, end, radionuclide, status, examType },
+      stats,
+      champs: wasteExportFieldLabels(),
+      donnees: wasteExportRecords(filteredWaste),
+    });
+    success(`Statistiques et données exportées (JSON) : ${filteredWaste.length} déchet(s).`);
+    void writeLog(profile.hospitalId, 'Export des statistiques et données déchets (JSON).');
   }
 
   const selectClass = 'px-3 py-2 bg-surface-2 border border-subtle rounded-lg text-primary text-sm';
@@ -222,6 +179,29 @@ export function StatisticsView({ wasteItems, incidents, profile, settings, theme
         <KPICard title="Incidents" value={stats.totals.incidents} icon={<AlertTriangle className="h-5 w-5" />} valueClass="text-red-500" />
         <KPICard title="Patients (cumul)" value={stats.daily.totalPatients} icon={<Users2 className="h-5 w-5" />} hint="Somme des patients du jour saisis." />
       </div>
+
+      {/* Conformité CALCULÉE — indicateur de preuve, distinct du statut « libérable » */}
+      <div className="bg-surface border border-subtle rounded-2xl p-6">
+        <h3 className="font-bold text-primary uppercase text-sm">Conformité calculée (déchets éliminés)</h3>
+        <p className="text-xs text-muted mt-1">
+          Activité massique sous le niveau de libération ET indice de conformité ≥ 1. Calculée à partir des données
+          saisies, jamais déclarée : « indéterminé » signifie qu&apos;une donnée manque, pas que le déchet est conforme.
+        </p>
+        <div className="mt-4 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-4 text-sm">
+          <Metric label="Éliminés évalués" value={String(cc.evaluated)} />
+          <Metric label="Conformes" value={countWithRate(cc.conforme, cc.conformeRate)} valueClass="text-green-600" />
+          <Metric label="Non conformes" value={countWithRate(cc.nonConforme, cc.nonConformeRate)} valueClass="text-red-500" />
+          <Metric label="Indéterminés (données manquantes)" value={countWithRate(cc.indetermine, cc.indetermineRate)} valueClass="text-amber-500" />
+          <Metric label="Sortis trop tôt (indice < 1)" value={String(cc.releasedTooEarly)} valueClass={cc.releasedTooEarly > 0 ? 'text-red-500' : undefined} />
+          <Metric label="Indice de conformité médian" value={fmtNum(cc.medianIndex, 2)} />
+          <Metric label="Indice de conformité moyen" value={fmtNum(cc.meanIndex, 2)} />
+          <Metric label="Durée de stockage moyenne" value={fmtNum(cc.meanStorageHours, 1, ' h')} />
+          <Metric label="Durée théorique moyenne (t_lib)" value={fmtNum(cc.meanTLibHours, 1, ' h')} />
+        </div>
+      </div>
+
+      {/* Complétude des données */}
+      <CompletenessTable stats={stats.completeness} />
 
       {/* Graphiques */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
@@ -337,11 +317,65 @@ function StatTable({ title, headers, rows }: { title: string; headers: string[];
   );
 }
 
-function Metric({ label, value }: { label: string; value: string }) {
+function Metric({ label, value, valueClass = 'text-primary' }: { label: string; value: string; valueClass?: string }) {
   return (
     <div>
       <div className="text-xs text-muted tracking-wide">{label}</div>
-      <div className="text-xl font-black italic text-primary tabular">{value}</div>
+      <div className={`text-xl font-black italic tabular ${valueClass}`}>{value}</div>
+    </div>
+  );
+}
+
+/** Taux de remplissage des champs critiques : un champ jamais saisi apparaît en rouge à 0 %. */
+function CompletenessTable({ stats }: { stats: CompletenessStat[] }) {
+  return (
+    <div className="bg-surface border border-subtle rounded-2xl overflow-hidden">
+      <div className="px-4 py-3 border-b border-subtle">
+        <h3 className="font-bold text-primary uppercase text-sm">Complétude des données</h3>
+        <p className="text-xs text-muted">
+          Part des déchets pour lesquels le champ est renseigné. Un champ à 0 % n&apos;a jamais été saisi : les
+          indicateurs qui en dépendent restent incalculables.
+        </p>
+      </div>
+      <div className="overflow-x-auto">
+        <table className="w-full text-sm">
+          <thead>
+            <tr className="border-b border-subtle text-left">
+              {['Champ', 'Périmètre', 'Renseignés', 'Taux'].map((h) => (
+                <th key={h} className="px-4 py-2 font-bold uppercase text-xs text-muted">{h}</th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {stats.map((c) => {
+              const rate = c.rate;
+              const critical = rate !== null && rate === 0;
+              const partial = rate !== null && rate > 0 && rate < 50;
+              const tone = critical ? 'text-red-500' : partial ? 'text-amber-500' : 'text-green-600';
+              const bar = critical ? 'bg-red-500' : partial ? 'bg-amber-500' : 'bg-green-500';
+              return (
+                <tr key={`${c.scope}-${c.label}`} className="border-b border-subtle last:border-0">
+                  <td className="px-4 py-2 text-primary">{c.label}</td>
+                  <td className="px-4 py-2 text-muted">{c.scope === 'elimines' ? 'Éliminés' : 'Tous'}</td>
+                  <td className="px-4 py-2 text-muted tabular">{c.filled} / {c.total}</td>
+                  <td className="px-4 py-2">
+                    {rate === null ? (
+                      <span className="text-faint">—</span>
+                    ) : (
+                      <div className="flex items-center gap-3">
+                        <div className="h-1.5 w-24 rounded-full bg-black/10 dark:bg-white/10 overflow-hidden print:hidden">
+                          <div className={`h-full rounded-full ${bar}`} style={{ width: `${rate}%` }} />
+                        </div>
+                        <span className={`font-bold tabular ${tone}`}>{rate.toFixed(0)} %</span>
+                      </div>
+                    )}
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
     </div>
   );
 }
